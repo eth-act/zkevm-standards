@@ -29,6 +29,8 @@ The vendor static library defined by [Static Library and Linker Script](../stati
 uint64_t zkvm_random_u64(void);
 ```
 
+See [`zkvm_random.h`](./zkvm_random.h) for the header a guest includes.
+
 Each call returns 64 uniformly distributed bits, independent of every other call. The function cannot fail, so no error code is returned. A guest that needs more bits calls again rather than expanding one value itself.
 
 ### Requirements on the host

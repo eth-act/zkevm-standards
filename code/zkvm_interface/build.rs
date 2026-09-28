@@ -7,13 +7,16 @@ fn main() {
         repo_root
     );
     let io_header = format!("{}/standards/io-interface/zkvm_io.h", repo_root);
+    let random_header = format!("{}/standards/host-randomness/zkvm_random.h", repo_root);
 
     println!("cargo:rerun-if-changed={}", accelerators_header);
     println!("cargo:rerun-if-changed={}", io_header);
+    println!("cargo:rerun-if-changed={}", random_header);
 
     let bindings = bindgen::Builder::default()
         .header(&accelerators_header)
         .header(&io_header)
+        .header(&random_header)
         .clang_arg("-std=c11")
         .use_core()
         .allowlist_type("zkvm_.*")
