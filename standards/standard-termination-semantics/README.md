@@ -68,10 +68,6 @@ _Noreturn void abort(void);
 
 `abort` ends the execution as a failed termination, exactly as if `main` had returned a non-zero value: the zkVM halts and reports failure, with a vendor-defined non-zero error code. It does not return, and it may be called from anywhere in the guest program.
 
-`abort` is how a guest fails from anywhere other than the return from `main`. A `no_std` Rust guest's panic handler calls it, and C's `abort()` and failed `assert()` reach it directly, since it is the C library's `abort` (`std::abort` in C++). A guest program must not define `abort` itself, for example through a C library it links.
-
-The name is the C library's own, so idiomatic C keeps working and no C library is required. Since only the distinction between zero and non-zero is mandated, a single failure function covers every abnormal termination; no status argument is needed.
-
 ### Mapping Language-Level Failures
 
 Language runtimes and standard libraries must map abnormal termination mechanisms to this standardized interface, including but not limited to:
