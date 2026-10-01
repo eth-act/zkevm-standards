@@ -58,6 +58,20 @@ As defined in the [Static Library and Linker Script Standard](../static-library-
 
 `_start` is responsible for mapping this return value to the appropriate zkVM termination mechanism. Only the distinction between zero and non-zero is mandated; the range of error codes a zkVM preserves is vendor-defined.
 
+### Failed Termination Function
+
+The vendor's static library, defined by the [Static Library and Linker Script Standard](../static-library-and-linker-script/README.md), must provide:
+
+```c
+_Noreturn void abort(void);
+```
+
+`abort` ends the execution as a failed termination, exactly as if `main` had returned a non-zero value: the zkVM halts and reports failure, with a vendor-defined non-zero error code. It does not return, and it may be called from anywhere in the guest program.
+
+`abort` is how a guest fails from anywhere other than the return from `main`. A `no_std` Rust guest's panic handler calls it, and C's `abort()` and failed `assert()` reach it directly, since it is the C library's `abort` (`std::abort` in C++). A guest program must not define `abort` itself, for example through a C library it links.
+
+The name is the C library's own, so idiomatic C keeps working and no C library is required. Since only the distinction between zero and non-zero is mandated, a single failure function covers every abnormal termination; no status argument is needed.
+
 ### Mapping Language-Level Failures
 
 Language runtimes and standard libraries must map abnormal termination mechanisms to this standardized interface, including but not limited to:
@@ -72,4 +86,4 @@ Language runtimes and standard libraries must map abnormal termination mechanism
   * Nil pointer dereferences
   * Runtime fatal errors
 
-This mapping must preserve failure semantics and ensure zkVM-level termination is triggered.
+This mapping must preserve failure semantics and ensure zkVM-level termination is triggered. A guest that brings its own language runtime, as one linked against the vendor's static library does, maps these mechanisms to [`abort`](#failed-termination-function).
