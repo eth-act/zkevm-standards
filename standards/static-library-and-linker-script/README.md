@@ -17,7 +17,8 @@ Each zkVM vendor must provide a static library (`.a` archive) targeting their zk
 1. The `_start` function — the machine entry point (see [Entry Point and Initialization](#entry-point-and-initialization)).
 2. All functions defined in the [IO Interface Standard](../io-interface/README.md): `read_input` and `write_output`.
 3. All functions defined in the [Cryptographic Accelerators C Interface Standard](../c-interface-accelerators/README.md).
-4. Any additional interface functions required by future standards in this series.
+4. The `abort` function — the failed termination defined in the [Termination Semantics Standard](../standard-termination-semantics/README.md#failed-termination-function).
+5. Any additional interface functions required by future standards in this series.
 
 The library filename is not standardized.
 
