@@ -9,7 +9,7 @@ We describe the rubric by which we evaluate guest programs' readiness:
 - Regarding ELF generation:
   - Modified/Custom compiler: Formal verification (FV) requirements will apply to the compiled ELF (TBD by the EF FV project team).
   - No Compiler (e.g., raw assembly/manual bytecode): The raw ELF artefact will be subject to a higher degree of formal verification scrutiny (TBD by the EF FV project team).
-- The repository license must be MIT + Apache 2.0.
+- The repository must be licensed under MIT, Apache-2.0, or both (dual MIT OR Apache-2.0 is preferred).
 - The team maintaining the guest program must be considered _sustainable_. While this is hard to define precisely, preference is given to guest programs maintained by established execution-layer teams or credible working groups.
 - <TBD regarding benchmark requirements>
 
