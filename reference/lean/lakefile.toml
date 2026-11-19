@@ -1,0 +1,17 @@
+name = "zkvm-ref"
+defaultTargets = ["ZkvmRef", "zkvm-load", "zkvm-run"]
+
+[[require]]
+name = "Lean_RV64D_executable"
+path = "../build/lean/Lean_RV64D_executable"
+
+[[lean_lib]]
+name = "ZkvmRef"
+
+[[lean_exe]]
+name = "zkvm-load"
+root = "Main.Load"
+
+[[lean_exe]]
+name = "zkvm-run"
+root = "Main.Run"
