@@ -1,6 +1,6 @@
 {"name": "reference-x", "exec_perm": "x",
  "address_space": {"base": "0x0", "size": "0x100000000"},
- "boot_addr": null, "trap_vector": "0x80000000",
+ "boot_addr": null,
  "input": {"base": "0x40000000", "size": "0x1000000"},
  "ram":   {"base": "0x80000000", "size": "0x8000000"},
  "stack": {"base": "0x88001000", "size": "0x100000"}}

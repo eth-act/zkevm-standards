@@ -1,8 +1,11 @@
 /-
-The reference machine state: the Sail-generated RISC-V model, initialised from a loaded image.
+The reference machine state: the Sail-generated RISC-V model with the zkVM state of
+reference/sail/zkvm/.
 -/
 import LeanRV64DExecutable
-import ZkvmRef.Loader
+-- The generated root module imports only what zkvm_host.sail (the last Sail file) depends
+-- on; `init_model` and `reset` live in Model.
+import LeanRV64DExecutable.Model
 import ZkvmRef.RegisterDefaults
 
 open PreSail LeanRV64DExecutable.Functions
@@ -18,62 +21,17 @@ def runM {α : Type} (m : SailM α) (s : MState) : Except String (α × MState) 
   | .ok a s' => .ok (a, s')
   | .error e _ => .error e.print
 
-/-- The generated PMA region for a loader region (same attributes as `toSailRegion`). -/
-def toPmaRegion (r : Region) : PMA_Region :=
-  let main := r.perm == .rw
-  let (readable, writable, executable) := match r.perm with
-    | .r => (true, false, false)
-    | .rw => (true, true, false)
-    | .x => (false, false, true)
-    | .rx => (true, false, true)
-    | .io => (true, true, false)
-  { base := BitVec.ofNat 64 r.base
-    size := BitVec.ofNat 64 r.size
-    attributes := {
-      mem_type := if main then .MainMemory else .IOMemory
-      cacheable := true
-      coherent := main
-      executable, readable, writable
-      read_idempotent := true
-      write_idempotent := true
-      misaligned_exceptions := { load_store := none, vector := none, amo := .AccessFault }
-      atomic_support := .AMONone
-      reservability := .RsrvNone
-      supports_cbo_zero := false
-      supports_pte_read := false
-      supports_pte_write := false }
-    include_in_device_tree := false }
-
-/-- Write `bytes` to memory starting at `addr`. -/
-def writeBytesAt (addr : Nat) (bytes : ByteArray) : SailM Unit := do
-  for i in [0:bytes.size] do
-    writeByte (addr + i) (bytes.get! i).toBitVec
-
 /-- Give every register that has no value yet its zero value. The generated model only
-stores registers that have a Sail initialiser or have been written; the C++ emulator starts
-the others at zero. -/
+stores registers that have a Sail initialiser or have been written. -/
 def fillRegisters : SailM Unit :=
   modify fun s =>
     let regs := allRegisters.foldl
       (fun m r => if m.contains r then m else m.insert r (registerDefault r)) s.regs
     { s with regs }
 
-/-- The state in which a loaded image starts executing, with `input` in the input region. -/
-def initialState (p : Profile) (img : Image) (input : ByteArray) : Except String MState := do
-  let m : SailM Unit := do
-    sail_model_init ()
-    fillRegisters
-    set_pc_reset_address (BitVec.ofNat 64 img.elf.entry.toNat)
-    if let some tohost := img.elf.symbol? "tohost" then
-      enable_htif tohost.toBitVec
-    writeReg Register.pma_regions (img.regions.map toPmaRegion)
-    init_model ""
-    init_boot_requirements ()
-    writeReg Register.mtvec (Mk_Mtvec (BitVec.ofNat 64 p.trapVector))
-    for (addr, bytes) in img.segments do
-      writeBytesAt addr bytes
-    writeBytesAt p.input.base (inputBlob input)
-  return (← runM m default).2
+/-- The machine after Sail's model initialisation, before anything is loaded. -/
+def initial : Except String MState :=
+  (·.2) <$> runM (do sail_model_init (); fillRegisters) default
 
 /-- `len` bytes at `a`, if all of them have been written. -/
 def readMem (s : MState) (a len : Nat) : Option ByteArray :=
@@ -93,5 +51,29 @@ def pc (s : MState) : BitVec 64 :=
 /-- Little-endian value of the `n` bytes at `a`, if all have been written. -/
 def readLE (s : MState) (a n : Nat) : Option Nat :=
   (readMem s a n).map fun b => (List.range n).foldr (fun i acc => acc * 256 + (b.get! i).toNat) 0
+
+/-- Value of register `r`, or `d` if it has none. -/
+def regOr {α : Type} (s : MState) (r : Register) (d : α) (h : RegisterType r = α) : α :=
+  match s.regs.get? r with
+  | some v => h ▸ v
+  | none => d
+
+/-- How the run halted, if it has. -/
+def haltOf (s : MState) : Option zkvm_outcome := regOr s Register.zkvm_halt none rfl
+
+/-- Public output so far, most recent byte first. -/
+def outputRev (s : MState) : List (BitVec 8) := regOr s Register.zkvm_output_rev [] rfl
+
+/-- Public output so far, in order. -/
+def output (s : MState) : List UInt8 := (outputRev s).reverse.map (·.toNat.toUInt8)
+
+/-- Misaligned data accesses so far. -/
+def misalignedCount (s : MState) : Nat := (regOr s Register.zkvm_misaligned_accesses 0 rfl).toNat
+
+/-- Host-function symbol addresses installed by the loader. -/
+def hostTable (s : MState) : List zkvm_host_binding := regOr s Register.zkvm_host_table [] rfl
+
+/-- Current PMA regions of the machine. -/
+def pmaRegions (s : MState) : List PMA_Region := regOr s Register.pma_regions [] rfl
 
 end ZkvmRef

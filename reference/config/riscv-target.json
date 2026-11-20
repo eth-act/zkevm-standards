@@ -1,0 +1,13 @@
+{
+  "extensions": {
+    "M": {"supported": true},
+    "Zicclsm": {"supported": true},
+    "V": {"support_level": "Disabled"}
+  },
+  "base": {
+    "mstatus": {"fs_legal_states": "ExtContext_Off", "vs_legal_states": "ExtContext_Off"}
+  },
+  "memory": {
+    "misaligned": {"exceptions": {"load_store": {"None": null}}}
+  }
+}

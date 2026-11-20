@@ -2,16 +2,14 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 PHDRS { text PT_LOAD FLAGS(@TEXT_FLAGS@); rodata PT_LOAD FLAGS(4); data PT_LOAD FLAGS(6); }
 SECTIONS {
-  . = @TEXT_BASE@;
-  .text : { KEEP(*(.text._trap)) KEEP(*(.text._start)) *(.text .text.*) } :text
+  . = @RAM_BASE@;
+  .text : { *(.text .text.*) } :text
   . = ALIGN(4096);
   .rodata : { *(.rodata .rodata.* .srodata .srodata.* .eh_frame .eh_frame_hdr .gcc_except_table) } :rodata
   . = ALIGN(4096);
-  .data : { KEEP(*(.tohost)) *(.data .data.*) __global_pointer$ = . + 0x800; *(.sdata .sdata.*) } :data
+  .data : { *(.data .data.*) __global_pointer$ = . + 0x800; *(.sdata .sdata.*) } :data
   .bss : { *(.sbss .sbss.* .bss .bss.* COMMON) } :data
   . = ALIGN(4096);
   _heap_start = .; _heap_end = @RAM_END@;
-  __stack_bottom = @STACK_BOTTOM@; __stack_top = @STACK_TOP@;
-  _zkvm_input_base = @INPUT_BASE@;
   /DISCARD/ : { *(.comment) *(.riscv.attributes) *(.note*) }
 }

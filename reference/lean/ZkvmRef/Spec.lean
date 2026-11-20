@@ -8,14 +8,15 @@ import ZkvmRef.Run
 
 namespace ZkvmRef
 
-/-- The reference machine loads `elf` under `p`, runs it on `input`, and halts with `o`. -/
+/-- The reference machine loads `elf` under `p`, runs it on `input`, and halts with `o`.
+Runs that reach an accelerator end in `unspecified`, which is not terminal, so the statements
+below make no claim about them. -/
 def Halts (p : Profile) (elf input : ByteArray) (o : Observation) : Prop :=
-  ∃ img s n, load p elf = .ok img ∧ initialState p img input = .ok s ∧ run n s = o ∧
-    Terminal o.outcome
+  ∃ s n, boot p elf input = .ok s ∧ run n s = o ∧ Terminal o.outcome
 
 /-- The reference loader rejects `elf` under `p`. -/
 def Rejects (p : Profile) (elf : ByteArray) : Prop :=
-  ∃ m, load p elf = .error m
+  ∃ m, validate p elf = .error m
 
 /-- A claimed exit code agrees with a reference outcome. Fault codes are vendor-defined
 (instruction-address-misaligned standard: a fault "may translate to a non-zero exit code"),

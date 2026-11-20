@@ -1,7 +1,10 @@
 import ZkvmRef.Elf
 import ZkvmRef.Profile
-import ZkvmRef.Loader
+import ZkvmRef.RegisterDefaults
 import ZkvmRef.Machine
+import ZkvmRef.Loader
+import ZkvmRef.Host
 import ZkvmRef.Run
+import ZkvmRef.StaticLibrary
+import ZkvmRef.LoaderSpec
 import ZkvmRef.Spec
-import ZkvmRef.Contracts

@@ -26,14 +26,10 @@ structure Profile where
   execPerm : ExecPerm
   addressSpace : Range
   bootAddr : Option Nat
-  trapVector : Nat
   input : Range
   ram : Range
   stack : Range
   deriving Repr, Inhabited
-
-/-- Base address of the zkVM I/O device. -/
-def zkvmIoBase : Nat := 0x00F0000000000000
 
 /-- The page at address 0 that must never be mapped. -/
 def nullPage : Range := ⟨0, 0x1000⟩
@@ -72,7 +68,6 @@ def Profile.fromJson (j : Json) : Except String Profile := do
     execPerm
     addressSpace := ← range "address_space"
     bootAddr
-    trapVector := ← hexField j "trap_vector"
     input := ← range "input"
     ram := ← range "ram"
     stack := ← range "stack"

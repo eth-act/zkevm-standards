@@ -2,8 +2,8 @@
 zkvm-run PROFILE ELF INPUT [FUEL]
 
 Loads ELF under PROFILE, runs it on INPUT in the reference machine and prints
-`outcome=<…> output=<hex>`. Exit codes: 0 ran, 2 rejected (prints `REJECT <message>`),
-1 other errors.
+`outcome=<…> output=<hex> misaligned=<count>`. Exit codes: 0 ran, 2 rejected (prints
+`REJECT <message>`), 1 other errors.
 -/
 import ZkvmRef
 
@@ -13,9 +13,9 @@ def outcomeString : Outcome → String
   | .success => "success"
   | .failure c => s!"failure:{c}"
   | .fault => "fault"
-  | .badExit c => s!"badexit:{c}"
   | .outOfFuel => "outoffuel"
   | .stuck m => s!"stuck:{m}"
+  | .unspecified n => s!"unspecified:{n}"
 
 def hexByte (b : UInt8) : String :=
   let d := Nat.toDigits 16 b.toNat
@@ -33,17 +33,20 @@ def main (args : List String) : IO UInt32 := do
     let p ← IO.ofExcept (Profile.fromJson j)
     let elf ← IO.FS.readBinFile elfPath
     let input ← IO.FS.readBinFile inputPath
-    match load p elf with
-    | .error m => IO.println s!"REJECT {m}"; return 2
-    | .ok img =>
-      if input.size + 8 > p.input.size then
-        IO.println "REJECT input larger than the input region"
-        return (2 : UInt32)
-      else
-        let s ← IO.ofExcept (initialState p img input)
-        let o := ZkvmRef.run fuel s
-        IO.println s!"outcome={outcomeString o.outcome} output={String.join (o.output.map hexByte)}"
-        return (0 : UInt32)
+    if let .error m := validate p elf then
+      IO.println s!"REJECT {m}"
+      return (2 : UInt32)
+    match boot p elf input with
+    | .error "input larger than the input region" =>
+      IO.println "REJECT input larger than the input region"
+      return (2 : UInt32)
+    | .error m =>
+      IO.eprintln s!"error: {m}"
+      return (1 : UInt32)
+    | .ok s =>
+      let (o, final) := ZkvmRef.runFinal fuel s
+      IO.println s!"outcome={outcomeString o.outcome} output={String.join (o.output.map hexByte)} misaligned={misalignedCount final}"
+      return (0 : UInt32)
   catch e =>
     IO.eprintln s!"error: {e}"
     return 1

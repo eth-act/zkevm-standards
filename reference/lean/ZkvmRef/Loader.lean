@@ -1,20 +1,23 @@
 /-
-ELF loading and validation (standards/elf-loading-and-validation) against a profile.
+ELF loading and validation (standards/elf-loading-and-validation) against a profile, and the
+loader: validation followed by installing the image, the host-function bindings and the input
+in the reference machine.
 -/
-import Lean.Data.Json
 import Std.Data.HashMap
 import ZkvmRef.Elf
 import ZkvmRef.Profile
+import ZkvmRef.Machine
+
+open PreSail LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
-/-- Permission of a memory region. `io` is the zkVM I/O device page. -/
+/-- Permission of a memory region. -/
 inductive Perm
   | r
   | rw
   | x
   | rx
-  | io
   deriving Repr, DecidableEq, Inhabited
 
 structure Region where
@@ -97,7 +100,7 @@ end Loader
 open Loader in
 /-- Validate an ELF against a profile and build its memory image. The checks run in a
 fixed order; the first failure is reported. -/
-def load (p : Profile) (bytes : ByteArray) : Except String Image := do
+def validate (p : Profile) (bytes : ByteArray) : Except String Image := do
   let b := bytes
   let byte := fun (i : Nat) => b.get! i
   unless b.size ≥ 64 && byte 0 == 0x7f && byte 1 == 0x45 && byte 2 == 0x4c && byte 3 == 0x46 do
@@ -137,15 +140,13 @@ def load (p : Profile) (bytes : ByteArray) : Except String Image := do
   let overlaps := fun (a c : Phdr) => decide (c.vaddr.toNat < a.vaddr.toNat + a.memsz.toNat)
   if let some (a, c) := firstPair overlaps nonEmpty then
     throw s!"segments {hex a.vaddr.toNat} and {hex c.vaddr.toNat} overlap"
-  -- Entry point and trap vector.
+  -- Entry point.
   let entry := elf.entry.toNat
   unless entry % 4 == 0 do throw "e_entry not 4-byte aligned"
   let execs := loads.filter isExec
   unless execs.any (segContains · entry) do throw "e_entry not inside an executable segment"
   if let some boot := p.bootAddr then
     unless entry == boot do throw "e_entry differs from the fixed boot address"
-  unless execs.any (segContains · p.trapVector) do
-    throw "trap vector not inside an executable segment"
   -- Paint pages.
   let mut pages : PageMap := {}
   pages := paint pages p.input .r .input
@@ -166,80 +167,80 @@ def load (p : Profile) (bytes : ByteArray) : Except String Image := do
     throw "null page is mapped"
   if mapped.any (fun pg => p.guard.contains (pg * pageSize) pageSize) then
     throw "stack guard page is mapped"
+  -- Symbols the loader binds: the library entry point and I/O functions, and `main`.
+  for n in ["_start", "main", "read_input", "write_output"] do
+    if elf.symbol? n = none then throw s!"missing symbol {n}"
   let sorted := (pages.toList.map (fun (pg, perm, _) => (pg, perm))).mergeSort
     (fun a c => a.1 ≤ c.1)
-  let regions := (runs sorted ++ [Region.mk zkvmIoBase pageSize .io]).mergeSort
-    (fun a c => a.base ≤ c.base)
+  let regions := runs sorted
   let segments := loads.map (fun ph => (ph.vaddr.toNat, Elf.segmentBytes b ph))
   return { elf, regions, segments }
 
-open Lean
-
-/-- A `bits(64)` configuration value. -/
-def bits64Json (n : Nat) : Json := Json.mkObj [("len", 64), ("value", Json.str (hex n))]
-
-/-- The sail-riscv `memory.regions` entry for a region. -/
-def toSailRegion (r : Region) : Json :=
+/-- The generated PMA region for a loader region. Only read-write regions are main memory. -/
+def toPmaRegion (r : Region) : PMA_Region :=
   let main := r.perm == .rw
   let (readable, writable, executable) := match r.perm with
     | .r => (true, false, false)
     | .rw => (true, true, false)
     | .x => (false, false, true)
     | .rx => (true, false, true)
-    | .io => (true, true, false)
-  let noneJ := Json.mkObj [("None", Json.null)]
-  Json.mkObj [
-    ("base", bits64Json r.base),
-    ("size", bits64Json r.size),
-    ("attributes", Json.mkObj [
-      ("mem_type", Json.str (if main then "MainMemory" else "IOMemory")),
-      ("cacheable", true),
-      ("coherent", Json.bool main),
-      ("executable", Json.bool executable),
-      ("readable", Json.bool readable),
-      ("writable", Json.bool writable),
-      ("read_idempotent", true),
-      ("write_idempotent", true),
-      ("misaligned_exceptions", Json.mkObj [
-        ("load_store", noneJ), ("vector", noneJ), ("amo", "AccessFault")]),
-      ("atomic_support", "AMONone"),
-      ("reservability", "RsrvNone"),
-      ("supports_cbo_zero", false),
-      ("supports_pte_read", false),
-      ("supports_pte_write", false)]),
-    ("include_in_device_tree", false)]
+  { base := BitVec.ofNat 64 r.base
+    size := BitVec.ofNat 64 r.size
+    attributes := {
+      mem_type := if main then .MainMemory else .IOMemory
+      cacheable := true
+      coherent := main
+      executable, readable, writable
+      read_idempotent := true
+      write_idempotent := true
+      misaligned_exceptions := { load_store := none, vector := none, amo := .AccessFault }
+      atomic_support := .AMONone
+      reservability := .RsrvNone
+      supports_cbo_zero := false
+      supports_pte_read := false
+      supports_pte_write := false }
+    include_in_device_tree := false }
 
-/-- Replace the value at a path of object keys. -/
-partial def setPath (j : Json) : List String → Json → Json
-  | [], v => v
-  | k :: ks, v => j.setObjVal! k (setPath (j.getObjValD k) ks v)
+/-- Write `bytes` to memory starting at `addr`. -/
+def writeBytesAt (addr : Nat) (bytes : ByteArray) : SailM Unit := do
+  for i in [0:bytes.size] do
+    writeByte (addr + i) (bytes.get! i).toBitVec
 
-/-- The sail-riscv configuration for running an image under a profile. -/
-def sailConfig (base : Json) (p : Profile) (img : Image) : Json :=
-  let j := setPath base ["memory", "regions"] (Json.arr (img.regions.map toSailRegion).toArray)
-  setPath j ["base", "mtvec", "reset_value"] (Json.num p.trapVector)
+/-- Install a validated image: memory map, PC at the entry point, segment contents (file
+bytes, then zeros up to `p_memsz`), the host-function bindings of the static library, and
+what `_start` needs to call `main`. No other register state is standardized. -/
+def install (p : Profile) (img : Image) (m : MState) : Except String MState := do
+  let sym := fun (n : String) => (img.elf.symbol? n).map (fun v => BitVec.ofNat 64 v.toNat)
+  let prog : SailM Unit := do
+    writeReg Register.pma_regions (img.regions.map toPmaRegion)
+    set_pc_reset_address (BitVec.ofNat 64 img.elf.entry.toNat)
+    init_model ""
+    for (addr, bytes) in img.segments do
+      writeBytesAt addr bytes
+    writeReg Register.zkvm_host_table
+      (zkvm_host_fns.filterMap fun f => (sym (zkvm_host_symbol f)).map ({ addr := ·, func := f }))
+    writeReg Register.zkvm_main ((sym "main").getD 0)
+    writeReg Register.zkvm_gp (sym "__global_pointer$")
+    writeReg Register.zkvm_stack_top (BitVec.ofNat 64 (p.stack.base + p.stack.size))
+    writeReg Register.zkvm_started false
+  return (← runM prog m).2
 
-/-- Little-endian encoding of `n` in `k` bytes. -/
-def leBytes (n k : Nat) : ByteArray :=
-  ⟨((List.range k).map (fun i => UInt8.ofNat (n / 256 ^ i % 256))).toArray⟩
+/-- Validate `bytes` under `p` and install it in `m`. -/
+def load (p : Profile) (bytes : ByteArray) (m : MState) : Except String MState := do
+  install p (← validate p bytes) m
 
-/-- The contents of the input region: `u64 len ‖ input`. -/
-def inputBlob (input : ByteArray) : ByteArray := leBytes input.size 8 ++ input
+/-- Place the private input at the start of the input region and record its address and size
+for `read_input`. -/
+def provideInput (p : Profile) (input : ByteArray) (m : MState) : Except String MState := do
+  if input.size > p.input.size then throw "input larger than the input region"
+  let prog : SailM Unit := do
+    writeBytesAt p.input.base input
+    writeReg Register.zkvm_input_base (BitVec.ofNat 64 p.input.base)
+    writeReg Register.zkvm_input_size (BitVec.ofNat 64 input.size)
+  return (← runM prog m).2
 
-/-- A minimal ELF64 `ET_EXEC` with one `PF_R` `PT_LOAD` at the input region holding the input blob. -/
-def inputElf (p : Profile) (input : ByteArray) : Except String ByteArray := do
-  if input.size + 8 > p.input.size then throw "input larger than the input region"
-  let blob := inputBlob input
-  let ehdr :=
-    ⟨#[0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]⟩ ++
-    leBytes 2 2 ++ leBytes 243 2 ++ leBytes 1 4 ++   -- e_type, e_machine, e_version
-    leBytes 0 8 ++ leBytes 64 8 ++ leBytes 0 8 ++    -- e_entry, e_phoff, e_shoff
-    leBytes 0 4 ++ leBytes 64 2 ++ leBytes 56 2 ++   -- e_flags, e_ehsize, e_phentsize
-    leBytes 1 2 ++ leBytes 0 2 ++ leBytes 0 2 ++ leBytes 0 2
-  let phdr :=
-    leBytes 1 4 ++ leBytes 4 4 ++ leBytes 120 8 ++   -- PT_LOAD, PF_R, p_offset
-    leBytes p.input.base 8 ++ leBytes p.input.base 8 ++
-    leBytes blob.size 8 ++ leBytes blob.size 8 ++ leBytes 8 8
-  return ehdr ++ phdr ++ blob
+/-- The machine ready to run `elf` under `p` on `input`. -/
+def boot (p : Profile) (elf input : ByteArray) : Except String MState := do
+  provideInput p input (← load p elf (← initial))
 
 end ZkvmRef

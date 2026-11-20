@@ -1,0 +1,94 @@
+diff --git a/model/exceptions/sys_exceptions.sail b/model/exceptions/sys_exceptions.sail
+index 91380da..45af008 100644
+--- a/model/exceptions/sys_exceptions.sail
++++ b/model/exceptions/sys_exceptions.sail
+@@ -15,8 +15,6 @@ function ext_check_xret_priv (_p : Privilege) : Privilege -> bool = true
+ // Called if above check fails
+ function ext_fail_xret_priv () : unit -> unit = ()
+ 
+-function handle_trap_extension(_p : Privilege, _pc : xlenbits, _u : option(unit)) -> unit = ()
+-
+ // used for traps and ECALL
+ function prepare_trap_vector(p : Privilege, cause : Mcause) -> xlenbits = {
+   let tvec : Mtvec = match p {
+diff --git a/model/riscv.sail_project b/model/riscv.sail_project
+index fab107c..65a962c 100644
+--- a/model/riscv.sail_project
++++ b/model/riscv.sail_project
+@@ -52,6 +52,14 @@ exceptions {
+     exceptions/sync_exception.sail,
+ }
+ 
++zkvm_core {
++  requires prelude, core
++
++  files
++    zkvm/zkvm_state.sail,
++    zkvm/zkvm_termination.sail,
++}
++
+ pmp {
+   requires prelude, core, Zicbop_types
+ 
+@@ -61,7 +69,7 @@ pmp {
+ }
+ 
+ sys {
+-  requires prelude, core, exceptions, pmp, V_core, Smcntrpmf, Zicfilp_regs, A_types, Stateen, Zicbop_types, PM_utils
++  requires prelude, core, exceptions, pmp, V_core, Smcntrpmf, Zicfilp_regs, A_types, Stateen, Zicbop_types, PM_utils, zkvm_core
+ 
+   files
+     sys/sys_reservation.sail,
+@@ -564,10 +572,17 @@ mops {
+   }
+ }
+ 
++zkvm_extension_fallback {
++  requires prelude, core
++  after extensions, mops
++
++  files zkvm/zkvm_extension_fallback.sail
++}
++
+ postlude {
+   after extensions, mops, core
+ 
+-  requires prelude, core, sys, exceptions, Smcntrpmf, pmp, Zicfilp_regs, Zicfilp_insts
++  requires prelude, core, sys, exceptions, Smcntrpmf, pmp, Zicfilp_regs, Zicfilp_insts, zkvm_extension_fallback
+ 
+   files
+     postlude/insts_end.sail,
+@@ -583,6 +598,13 @@ postlude {
+     postlude/model.sail
+ }
+ 
++zkvm_host {
++  requires prelude, core, sys, exceptions, zkvm_core
++  after postlude
++
++  files zkvm/zkvm_host.sail
++}
++
+ unit_tests {
+   after postlude
+   requires prelude, core, sys, exceptions, postlude
+diff --git a/model/sys/vmem_utils.sail b/model/sys/vmem_utils.sail
+index 65fbfae..12dd627 100644
+--- a/model/sys/vmem_utils.sail
++++ b/model/sys/vmem_utils.sail
+@@ -49,6 +49,7 @@ function vmem_read_addr(vaddr, width, access, aq, rl, res) = {
+   // "LR faults like a normal load, even though it's in the AMO major opcode space."
+   // - Andrew Waterman, isa-dev, 10 Jul 2018.
+   if not(is_aligned_addr(vaddr, width)) then {
++    zkvm_misaligned_accesses = zkvm_misaligned_accesses + 1;
+     match plat_misaligned_exception(access, res) {
+       Some(AccessFault)        => return Err(memory_exception(vaddr, E_Load_Access_Fault())),
+       Some(AlignmentException) => return Err(memory_exception(vaddr, E_Load_Addr_Align())),
+@@ -109,6 +110,7 @@ val vmem_write_addr : forall 'width, is_mem_width('width).
+ function vmem_write_addr(vaddr, width, data, access, aq, rl, res) = {
+   // See comments in vmem_read_addr for an explanation of this check.
+   if not(is_aligned_addr(vaddr, width)) then {
++    zkvm_misaligned_accesses = zkvm_misaligned_accesses + 1;
+     match plat_misaligned_exception(access, res) {
+       Some(AccessFault)        => return Err(memory_exception(vaddr, E_SAMO_Access_Fault())),
+       Some(AlignmentException) => return Err(memory_exception(vaddr, E_SAMO_Addr_Align())),

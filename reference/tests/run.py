@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Differential tests: the C++ sail-riscv emulator and the Lean reference must both match
-the expected observation of each guest, and both Lean executables must reject malformed
-ELFs with the exact loader message.
+"""Tests of the Lean reference: each guest must produce its expected observation, and
+zkvm-run must reject malformed ELFs with the exact loader message.
 
-Run from the repository root after scripts/build-emulator.sh and scripts/build-lean.sh:
+Run from the repository root after scripts/build-lean.sh:
     python3 reference/tests/run.py
 """
+import json
 import pathlib
 import re
 import shutil
@@ -18,16 +18,15 @@ from elftools.elf.elffile import ELFFile
 ROOT = pathlib.Path.cwd()
 REF = ROOT / "reference"
 BUILD = REF / "build" / "tests"
-SIM = REF / "build" / "emu" / "c_emulator" / "sail_riscv_sim"
-LEAN_BIN = REF / "lean" / ".lake" / "build" / "bin"
-ZKVM_LOAD = LEAN_BIN / "zkvm-load"
-ZKVM_RUN = LEAN_BIN / "zkvm-run"
-BASE_CONFIG = REF / "config" / "zkvm-ref-base.json"
+STUBLIB = REF / "tests" / "stublib"
+ZKVM_RUN = REF / "lean" / ".lake" / "build" / "bin" / "zkvm-run"
 PROFILES = ["reference-x", "reference-rx"]
 CC = "riscv64-unknown-elf-gcc"
 CFLAGS = [
     "-march=rv64im_zicclsm", "-mabi=lp64", "-mcmodel=medany", "-O2", "-ffreestanding",
-    "-fno-builtin", "-fno-jump-tables", "-nostdlib", "-I", str(ROOT / "standards" / "io-interface"),
+    "-fno-builtin", "-fno-jump-tables", "-nostdlib",
+    "-I", str(ROOT / "standards" / "io-interface"),
+    "-I", str(ROOT / "standards" / "c-interface-accelerators"),
 ]
 INPUT = b"hello zkvm"
 
@@ -48,64 +47,44 @@ def profile_path(profile):
     return REF / "profiles" / f"{profile}.json"
 
 
+def linker_script(profile, out):
+    """Fill stublib/link.ld.in for a profile."""
+    prof = json.loads(profile_path(profile).read_text())
+    ram = prof["ram"]
+    subst = {
+        "@TEXT_FLAGS@": str({"x": 1, "rx": 5}[prof["exec_perm"]]),
+        "@RAM_BASE@": ram["base"],
+        "@RAM_END@": hex(int(ram["base"], 16) + int(ram["size"], 16)),
+    }
+    text = (STUBLIB / "link.ld.in").read_text()
+    for key, value in subst.items():
+        text = text.replace(key, value)
+    out.write_text(text)
+
+
+def link(src, ld, objs, elf):
+    subprocess.run([CC, *CFLAGS, "-T", str(ld), str(src), *map(str, objs), "-o", str(elf)], check=True)
+
+
 def build():
     for profile in PROFILES:
-        subprocess.run(["make", "-s", "-C", str(REF / "runtime"), f"PROFILE={profile_path(profile)}"],
-                       check=True)
-        rt = REF / "build" / "runtime" / profile
         out = BUILD / profile
         out.mkdir(parents=True, exist_ok=True)
+        ld = out / "link.ld"
+        linker_script(profile, ld)
+        stubs = out / "stubs.o"
+        subprocess.run([CC, *CFLAGS, "-c", str(STUBLIB / "stubs.S"), "-o", str(stubs)], check=True)
         for src in sorted((REF / "tests" / "guests").glob("*.c")):
-            subprocess.run([CC, *CFLAGS, "-T", str(rt / "link.ld"), str(src), "-Wl,--whole-archive",
-                            str(rt / "libzkvm_ref.a"), "-Wl,--no-whole-archive",
-                            "-o", str(out / f"{src.stem}.elf")], check=True)
-
-
-def decode_exit(code):
-    if code == 0:
-        return "success"
-    if code < 2**32:
-        return f"failure:{code}"
-    if code == 2**32:
-        return "fault"
-    return f"badexit:{code}"
-
-
-def run_cpp(profile, elf, workdir):
-    """Returns (outcome, output bytes, misaligned count) or raises on loader rejection."""
-    inp = workdir / "input.bin"
-    load = subprocess.run([str(ZKVM_LOAD), str(profile_path(profile)), str(BASE_CONFIG), str(elf),
-                           str(inp), str(workdir)], capture_output=True, text=True)
-    if load.returncode != 0:
-        return f"load:{load.returncode}:{load.stdout.strip()}{load.stderr.strip()}", b"", None
-    out = workdir / "out.bin"
-    sim = subprocess.run([str(SIM), "--config", str(workdir / "config.json"), "--zkvm-output",
-                          str(out), "--inst-limit", "5000000", str(elf), str(workdir / "input.elf")],
-                         capture_output=True, text=True)
-    outcome = "outoffuel"
-    misaligned = None
-    for line in sim.stdout.splitlines():
-        if m := re.fullmatch(r"zkvm: misaligned accesses: (\d+)", line):
-            misaligned = int(m.group(1))
-        elif line == "SUCCESS":
-            outcome = decode_exit(0)
-        elif m := re.fullmatch(r"FAILURE: (\d+) \(0x[0-9a-f]+\)", line):
-            outcome = decode_exit(int(m.group(1)))
-        elif line.startswith("FAILURE"):
-            outcome = f"stuck:{line}"
-    if sim.returncode != 0 and outcome in ("success", "outoffuel"):
-        outcome = f"stuck:exit {sim.returncode}: {sim.stderr.strip()}"
-    output = out.read_bytes() if out.exists() else b""
-    return outcome, output, misaligned
+            link(src, ld, [stubs], out / f"{src.stem}.elf")
 
 
 def run_lean(profile, elf, workdir):
     r = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
                        capture_output=True, text=True)
-    m = re.fullmatch(r"outcome=(.*) output=([0-9a-f]*)", r.stdout.strip())
+    m = re.fullmatch(r"outcome=(.*) output=([0-9a-f]*) misaligned=(\d+)", r.stdout.strip())
     if r.returncode != 0 or not m:
-        return f"error:{r.returncode}:{r.stdout.strip()}{r.stderr.strip()}", b""
-    return m.group(1), bytes.fromhex(m.group(2))
+        return f"error:{r.returncode}:{r.stdout.strip()}{r.stderr.strip()}", b"", None
+    return m.group(1), bytes.fromhex(m.group(2)), int(m.group(3))
 
 
 def symbol_file_byte(elf, name):
@@ -125,16 +104,12 @@ def case(guest, profile, outcome, output, misaligned=None):
     shutil.rmtree(workdir, ignore_errors=True)
     workdir.mkdir(parents=True)
     (workdir / "input.bin").write_bytes(INPUT)
-    expected = (outcome, output)
-    cpp_outcome, cpp_output, cpp_mis = run_cpp(profile, elf, workdir)
-    lean = run_lean(profile, elf, workdir)
+    got_outcome, got_output, got_mis = run_lean(profile, elf, workdir)
     problems = []
-    if (cpp_outcome, cpp_output) != expected:
-        problems.append(f"C++ gave {cpp_outcome} {cpp_output!r}")
-    if lean != expected:
-        problems.append(f"Lean gave {lean[0]} {lean[1]!r}")
-    if misaligned is not None and cpp_mis != misaligned:
-        problems.append(f"C++ misaligned count {cpp_mis}, expected {misaligned}")
+    if (got_outcome, got_output) != (outcome, output):
+        problems.append(f"got {got_outcome} {got_output!r}")
+    if misaligned is not None and got_mis != misaligned:
+        problems.append(f"misaligned count {got_mis}, expected {misaligned}")
     report(f"{profile}/{guest} -> {outcome} {output!r}", not problems,
            "; ".join(problems) + f" (expected {outcome} {output!r})")
 
@@ -178,15 +153,23 @@ def rejection(name, elf_bytes, message, profile="reference-x"):
     elf.write_bytes(elf_bytes)
     (workdir / "input.bin").write_bytes(INPUT)
     want = f"REJECT {message}"
-    load = subprocess.run([str(ZKVM_LOAD), str(profile_path(profile)), str(BASE_CONFIG), str(elf),
-                           str(workdir / "input.bin"), str(workdir / "out")], capture_output=True, text=True)
-    run = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
-                         capture_output=True, text=True)
-    problems = []
-    for tool, r in (("zkvm-load", load), ("zkvm-run", run)):
-        if r.returncode != 2 or r.stdout.strip() != want:
-            problems.append(f"{tool} exit {r.returncode} printed {r.stdout.strip()!r}{r.stderr.strip()!r}")
-    report(f"reject {name} -> {want}", not problems, "; ".join(problems))
+    r = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
+                       capture_output=True, text=True)
+    ok = r.returncode == 2 and r.stdout.strip() == want
+    report(f"reject {name} -> {want}", ok, f"exit {r.returncode} printed {r.stdout.strip()!r}{r.stderr.strip()!r}")
+
+
+def missing_symbol_elf():
+    """exit3.c linked against a library that defines only `_start`."""
+    workdir = BUILD / "reject" / "missing-symbol-build"
+    workdir.mkdir(parents=True, exist_ok=True)
+    stub = workdir / "start_only.S"
+    stub.write_text("  .section .text\n  .balign 4\n  .globl _start\n_start:\n  unimp\n")
+    obj = workdir / "start_only.o"
+    subprocess.run([CC, *CFLAGS, "-c", str(stub), "-o", str(obj)], check=True)
+    elf = workdir / "exit3.elf"
+    link(REF / "tests" / "guests" / "exit3.c", BUILD / "reference-x" / "link.ld", [obj], elf)
+    return elf.read_bytes()
 
 
 def main():
@@ -202,6 +185,10 @@ def main():
     case("text_read", "reference-rx", "success",
          symbol_file_byte(BUILD / "reference-rx" / "text_read.elf", "main"))
     case("output_then_fail", "reference-x", "failure:5", b"partial")
+    case("bss", "reference-x", "success", b"")
+    case("memops", "reference-x", "success", bytes.fromhex(
+        "010201020304050607080b0c0d0e0f100102030405060708abababab00000000ff00"))
+    case("accel", "reference-x", "unspecified:zkvm_keccak256", b"")
 
     rejection("bad-magic", patched(put("<B", 0, 0)), "bad magic")
     rejection("class32", patched(put("<B", 4, 1)), "class is not ELFCLASS64")
@@ -221,6 +208,7 @@ def main():
     rejection("outside", patched(both(phdr_field(0, 16, "<Q", lambda v: 0x200000000),
                                       phdr_field(0, 24, "<Q", lambda v: 0x200000000))),
               "segment 0x200000000: outside the addressable space")
+    rejection("missing-symbol", missing_symbol_elf(), "missing symbol read_input")
 
     passed = sum(results)
     failed = len(results) - passed
