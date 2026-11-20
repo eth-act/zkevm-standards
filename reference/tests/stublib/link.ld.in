@@ -1,0 +1,15 @@
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+PHDRS { text PT_LOAD FLAGS(@TEXT_FLAGS@); rodata PT_LOAD FLAGS(4); data PT_LOAD FLAGS(6); }
+SECTIONS {
+  . = @RAM_BASE@;
+  .text : { *(.text .text.*) } :text
+  . = ALIGN(4096);
+  .rodata : { *(.rodata .rodata.* .srodata .srodata.* .eh_frame .eh_frame_hdr .gcc_except_table) } :rodata
+  . = ALIGN(4096);
+  .data : { *(.data .data.*) __global_pointer$ = . + 0x800; *(.sdata .sdata.*) } :data
+  .bss : { *(.sbss .sbss.* .bss .bss.* COMMON) } :data
+  . = ALIGN(4096);
+  _heap_start = .; _heap_end = @RAM_END@;
+  /DISCARD/ : { *(.comment) *(.riscv.attributes) *(.note*) }
+}

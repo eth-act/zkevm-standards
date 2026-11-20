@@ -1,0 +1,10 @@
+{
+  "memory": {
+    "pmp": {"count": 0, "usable_count": 0},
+    "regions": []
+  },
+  "platform": {
+    "clint": {"supported": false},
+    "simple_interrupt_generator": {"supported": false}
+  }
+}

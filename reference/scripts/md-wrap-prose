@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""Markdown formatter that wraps prose *and* wraps wide table cells.
+
+prettier has no option to skip table formatting (it always re-aligns column
+widths) and no option to wrap cell *content*, which both churns tables while
+you're editing them and lets individual cells grow arbitrarily wide. This
+wrapper protects GFM tables by swapping each one for a placeholder HTML comment,
+running prettier (prose-wrap=always, print-width=100) over the rest, then
+restoring every table -- but on the way back it re-flows each table so no cell's
+content exceeds MAX_CELL_WIDTH, spilling the overflow onto extra continuation
+rows (blank leading cells), and re-aligns the columns.
+
+Wrapping is:
+  * word-boundary only -- a single long token (URL, code span) is never split,
+    so such a cell may still exceed MAX_CELL_WIDTH;
+  * reversible -- before wrapping, continuation rows from a previous run are
+    folded back into their logical row, so changing MAX_CELL_WIDTH re-flows the
+    whole cell (wider *and* narrower) rather than only ever splitting further;
+  * anchored on the first column -- a row with a non-empty first cell starts a
+    new logical row, an empty first cell continues the row above; so a genuine
+    data row with an empty first cell is absorbed into the row above it;
+  * idempotent -- re-running on already-wrapped output reproduces it byte-for-
+    byte (fold back, then re-wrap at the same width, yields the same layout);
+  * fail-safe -- if re-flowing a given table raises for any reason, that table is
+    restored verbatim (the pre-wrapping behavior).
+
+A file may override the prose wrap width for itself with an HTML-comment
+directive anywhere in the source, e.g. `<!--md-wrap-prose:width:60-->`; absent
+one, the width is PRINT_WIDTH. It's a normal comment prettier leaves in place,
+so the width travels with the file and both this CLI and the editor's
+format-on-save honor it. (Table cell wrapping still uses MAX_CELL_WIDTH.)
+
+Reads markdown on stdin, writes formatted markdown on stdout. Vendored from
+github.com/codygunton/dot-config (nvim/vendor/md-wrap-prose); run on staged markdown by
+reference/githooks/pre-commit.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+PRINT_WIDTH = "100"
+# Max characters of *content* per table cell before it spills to a continuation
+# row. Tune to taste -- this is the single knob controlling table wrapping.
+MAX_CELL_WIDTH = 60
+
+# Optional per-file override of the prose wrap width: an HTML comment anywhere
+# in the source, e.g. `<!--md-wrap-prose:width:60-->` (surrounding spaces ok).
+# Falls back to PRINT_WIDTH. It's a real comment prettier preserves, so the
+# width stays with the file rather than in per-session editor state.
+WIDTH_DIRECTIVE_RE = re.compile(r"<!--\s*md-wrap-prose:width:(\d+)\s*-->")
+
+PLACEHOLDER = "<!--md-wrap-prose:table:{}-->"
+PLACEHOLDER_RE = re.compile(r"<!--md-wrap-prose:table:(\d+)-->")
+
+# A GFM delimiter row: pipe-separated runs of dashes with optional alignment
+# colons. Requires a pipe so it can't match a `---` thematic break / setext rule.
+DELIM_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+
+# Split a table row on pipes that are not backslash-escaped.
+CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+# GitHub alert marker line, e.g. `> [!CAUTION]`. GitHub only renders the callout
+# when the marker sits alone on the first line, but prettier's prose-wrap folds it
+# into the body paragraph. We protect the whole alert blockquote and restore it
+# verbatim (which also keeps any manual line breaks inside it).
+ALERT_RE = re.compile(
+    r"^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$", re.IGNORECASE
+)
+BLOCKQUOTE_RE = re.compile(r"^\s*>")
+ALERT_PLACEHOLDER = "<!--md-wrap-prose:alert:{}-->"
+ALERT_PLACEHOLDER_RE = re.compile(r"<!--md-wrap-prose:alert:(\d+)-->")
+
+# ATX heading, e.g. `## Section`. A deliberate run of >=2 blank lines before a
+# heading is a visual section break, but prettier collapses every blank run to a
+# single line, so we record the exact count and restore it afterwards.
+HEADING_RE = re.compile(r"^#{1,6}(?:\s|$)")
+BLANK_PLACEHOLDER = "<!--md-wrap-prose:blank:{}-->"
+# Consumes the blank lines prettier pads around the placeholder so restore can
+# put back exactly the original count.
+BLANK_PLACEHOLDER_RE = re.compile(r"\n*<!--md-wrap-prose:blank:(\d+)-->\n*")
+
+
+def is_delim(line):
+    return "|" in line and "-" in line and DELIM_RE.match(line) is not None
+
+
+def find_prettier():
+    p = shutil.which("prettier")
+    if p:
+        return p
+    fallback = os.path.expanduser("~/.local/share/nvim/mason/bin/prettier")
+    return fallback if os.path.exists(fallback) else None
+
+
+def split_row(line):
+    """Split one table source line into stripped cell strings, dropping the
+    outer pipes. `\\|` inside a cell is preserved (not treated as a separator)."""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith("\\|"):
+        s = s[:-1]
+    return [c.strip() for c in CELL_SPLIT_RE.split(s)]
+
+
+def parse_aligns(delim_cells):
+    aligns = []
+    for c in delim_cells:
+        c = c.strip()
+        left, right = c.startswith(":"), c.endswith(":")
+        if left and right:
+            aligns.append("center")
+        elif right:
+            aligns.append("right")
+        elif left:
+            aligns.append("left")
+        else:
+            aligns.append("none")
+    return aligns
+
+
+def wrap_cell(text, width):
+    """Greedy word-wrap to `width`. A single word longer than `width` is kept
+    whole on its own line (never hard-split, so URLs/code survive)."""
+    words = text.split()
+    if not words:
+        return [""]
+    lines, cur = [], ""
+    for w in words:
+        if not cur:
+            cur = w
+        elif len(cur) + 1 + len(w) <= width:
+            cur += " " + w
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+# Minimum column width per alignment so the rebuilt delimiter row is always a
+# valid GFM marker (`-`, `:-`, `-:`, `:-:`).
+_MIN_WIDTH = {"none": 1, "left": 2, "right": 2, "center": 3}
+
+
+def coalesce_body(rows, ncol):
+    """Fold continuation rows from a previous wrap back into their logical row,
+    so a re-run re-flows the whole cell at the current width instead of only
+    splitting further. The first column anchors each row: a non-empty first cell
+    starts a new logical row; an empty first cell continues the row above (its
+    cells are appended column-wise). Consequence: a genuine data row with an
+    empty first cell is absorbed into the row above it."""
+    logical = []
+    for row in rows:
+        row = (row + [""] * ncol)[:ncol]
+        if logical and row[0] == "":
+            prev = logical[-1]
+            for c in range(ncol):
+                if row[c]:
+                    prev[c] = (prev[c] + " " + row[c]).strip() if prev[c] else row[c]
+        else:
+            logical.append(list(row))
+    return logical
+
+
+def wrap_table(block, width):
+    """Re-flow one table block string: wrap cells to `width`, spill overflow to
+    continuation rows, and align columns. Returns the rebuilt block."""
+    raw = block.split("\n")
+    indent = re.match(r"\s*", raw[0]).group(0)
+
+    header = split_row(raw[0])
+    delim = split_row(raw[1])
+    body_raw = [split_row(l) for l in raw[2:] if l.strip()]
+
+    ncol = max([len(header), len(delim)] + [len(r) for r in body_raw])
+    aligns = parse_aligns(delim) + ["none"] * (ncol - len(delim))
+
+    # Reverse any previous wrap first, so widening the cap re-joins over-split
+    # cells rather than leaving them broken too small.
+    body = coalesce_body(body_raw, ncol)
+
+    def norm(row):
+        return (row + [""] * ncol)[:ncol]
+
+    def to_physical(row):
+        """One logical row -> list of physical rows after wrapping each cell."""
+        wrapped = [wrap_cell(c, width) for c in norm(row)]
+        h = max(len(w) for w in wrapped)
+        return [
+            [wrapped[c][k] if k < len(wrapped[c]) else "" for c in range(ncol)]
+            for k in range(h)
+        ]
+
+    # Header stays on one physical row so the delimiter is always line 2 and the
+    # table is re-detected on the next run (headers are short labels anyway).
+    phys_header = [norm(header)]
+    phys_body = [pr for row in body for pr in to_physical(row)]
+
+    colw = []
+    for c in range(ncol):
+        content = max((len(r[c]) for r in phys_header + phys_body), default=1)
+        colw.append(max(content, _MIN_WIDTH[aligns[c]]))
+
+    def pad(cell, c):
+        w, a = colw[c], aligns[c]
+        if a == "right":
+            return cell.rjust(w)
+        if a == "center":
+            total = w - len(cell)
+            left = total // 2
+            return " " * left + cell + " " * (total - left)
+        return cell.ljust(w)
+
+    def render(cells):
+        return indent + "| " + " | ".join(pad(cells[c], c) for c in range(ncol)) + " |"
+
+    def render_delim():
+        parts = []
+        for c in range(ncol):
+            w, a = colw[c], aligns[c]
+            if a == "center":
+                parts.append(":" + "-" * (w - 2) + ":")
+            elif a == "right":
+                parts.append("-" * (w - 1) + ":")
+            elif a == "left":
+                parts.append(":" + "-" * (w - 1))
+            else:
+                parts.append("-" * w)
+        return indent + "| " + " | ".join(parts) + " |"
+
+    lines = [render(r) for r in phys_header]
+    lines.append(render_delim())
+    lines += [render(r) for r in phys_body]
+    return "\n".join(lines)
+
+
+def protect_tables(text):
+    lines = text.split("\n")
+    out, tables = [], []
+    i = 0
+    while i < len(lines):
+        # A table = a header line containing `|` immediately followed by a
+        # delimiter row, then contiguous non-blank `|` rows.
+        if i + 1 < len(lines) and "|" in lines[i] and is_delim(lines[i + 1]):
+            block = [lines[i], lines[i + 1]]
+            j = i + 2
+            while j < len(lines) and lines[j].strip() != "" and "|" in lines[j]:
+                block.append(lines[j])
+                j += 1
+            block_text = "\n".join(block)
+            try:
+                block_text = wrap_table(block_text, MAX_CELL_WIDTH)
+            except Exception:
+                pass  # fail-safe: restore the table verbatim
+            out.append(PLACEHOLDER.format(len(tables)))
+            tables.append(block_text)
+            i = j
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out), tables
+
+
+def restore_tables(text, tables):
+    return PLACEHOLDER_RE.sub(lambda m: tables[int(m.group(1))], text)
+
+
+def protect_alerts(text):
+    """Swap each GitHub alert (a blockquote whose first line is `> [!TYPE]`) for
+    a placeholder so prettier leaves it alone; it's restored verbatim."""
+    lines = text.split("\n")
+    out, alerts = [], []
+    i = 0
+    while i < len(lines):
+        if ALERT_RE.match(lines[i]):
+            block = [lines[i]]
+            j = i + 1
+            # A blockquote runs across contiguous `>`-prefixed lines.
+            while j < len(lines) and BLOCKQUOTE_RE.match(lines[j]):
+                block.append(lines[j])
+                j += 1
+            out.append(ALERT_PLACEHOLDER.format(len(alerts)))
+            alerts.append("\n".join(block))
+            i = j
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out), alerts
+
+
+def restore_alerts(text, alerts):
+    return ALERT_PLACEHOLDER_RE.sub(lambda m: alerts[int(m.group(1))], text)
+
+
+def protect_blanks(text):
+    """Replace each run of >=2 blank lines that precedes a heading with a single
+    placeholder recording the count, so prettier can't collapse the section
+    break. Runs of one blank line (which prettier keeps anyway) are untouched."""
+    lines = text.split("\n")
+    out, counts = [], []
+    i, n = 0, len(lines)
+    while i < n:
+        if lines[i] == "":
+            j = i
+            while j < n and lines[j] == "":
+                j += 1
+            run = j - i
+            if run >= 2 and j < n and HEADING_RE.match(lines[j]):
+                out.append(BLANK_PLACEHOLDER.format(len(counts)))
+                counts.append(run)
+            else:
+                out.extend([""] * run)
+            i = j
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out), counts
+
+
+def restore_blanks(text, counts):
+    # run blank lines between two text lines == run + 1 newlines.
+    return BLANK_PLACEHOLDER_RE.sub(
+        lambda m: "\n" * (counts[int(m.group(1))] + 1), text
+    )
+
+
+def main():
+    src = sys.stdin.read()
+    prettier = find_prettier()
+    if not prettier:
+        sys.stderr.write("md-wrap-prose: prettier not found\n")
+        return 1
+
+    # Per-file width directive (first wins) overrides the PRINT_WIDTH default.
+    m = WIDTH_DIRECTIVE_RE.search(src)
+    print_width = m.group(1) if m else PRINT_WIDTH
+
+    # Protect what prettier would otherwise mangle, then run it, then restore.
+    text, alerts = protect_alerts(src)
+    text, tables = protect_tables(text)
+    text, blanks = protect_blanks(text)
+    proc = subprocess.run(
+        [
+            prettier,
+            "--parser",
+            "markdown",
+            "--prose-wrap",
+            "always",
+            "--print-width",
+            print_width,
+        ],
+        input=text,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        return proc.returncode
+
+    out = restore_blanks(proc.stdout, blanks)
+    out = restore_tables(out, tables)
+    out = restore_alerts(out, alerts)
+    sys.stdout.write(out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
