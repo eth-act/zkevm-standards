@@ -44,7 +44,7 @@ def report(name, ok, detail=""):
 
 
 def profile_path(profile):
-    return REF / "profiles" / f"{profile}.json"
+    return REF / "memory-profiles" / f"{profile}.json"
 
 
 def linker_script(profile, out):

@@ -1,8 +1,8 @@
 /-
-The zkVM static library (standards/static-library-and-linker-script, standards/io-interface,
-standards/accelerated-memory-operations, standards/c-interface-accelerators): which symbols an
-ELF must export, and when real library code implements a host function of the reference
-machine. Definitions only; nothing here is proved.
+Vocabulary for the zkVM static library (standards/static-library-and-linker-script,
+standards/io-interface, standards/accelerated-memory-operations,
+standards/c-interface-accelerators): exported symbols, calls and returns, the psABI register
+rules, and memory permissions. The statements built from them are in ZkvmRef/Compliance.lean.
 -/
 import ZkvmRef.Elf
 import ZkvmRef.Run
@@ -26,12 +26,6 @@ def linkerScriptSymbols : List String := ["_heap_start", "_heap_end"]
 /-- Symbols the static library may export (accelerated memory operations). -/
 def optionalExports : List String := ["memcpy", "memmove", "memset", "memcmp"]
 
-/-- A linked guest carries a conforming static library and linker script: all required
-symbols are defined and the ELF entry point is `_start`. -/
-def StaticLibraryConforms (elf : Elf) : Prop :=
-  (∀ n ∈ requiredExports ++ linkerScriptSymbols, Exports elf n) ∧
-    elf.symbol? "_start" = some elf.entry
-
 /-- Exactly `n` steps, if each of them is an ordinary step. -/
 def stepN : Nat → MState → Option MState
   | 0, s => some s
@@ -45,7 +39,11 @@ def CallReturns (s s' : MState) : Prop :=
   ∃ n, stepN n s = some s' ∧ pc s' = xreg s 1 ∧
     ∀ m < n, ∀ t, stepN m s = some t → pc t ≠ xreg s 1
 
-/-- Callee-saved registers of the RISC-V psABI: `sp`, `gp`, `tp`, `s0`–`s11`. -/
+/-- Registers a call must leave unchanged under the RISC-V psABI: the callee-saved `sp` and
+`s0`–`s11`, and the fixed `gp` and `tp`. Register convention:
+https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L9-L27;
+procedure calling convention:
+https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L157-L168. -/
 def calleeSavedRegs : List (Fin 32) := [2, 3, 4, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
 
 def CalleeSaved (s s' : MState) : Prop :=
@@ -79,22 +77,5 @@ def AtEntry (s : MState) (entry : Nat) : Prop := pc s = BitVec.ofNat 64 entry �
 /-- `s` with no host-function bindings: the code at every symbol runs as instructions. -/
 def native (s : MState) : MState :=
   { s with regs := s.regs.insert Register.zkvm_host_table ([] : List zkvm_host_binding) }
-
-/-- The library code at `entry` implements host function `f`: from any call of it, running
-the code natively returns to `ra` with the callee-saved registers, `a0`, the public output and
-all memory outside the stack reserve as the host function leaves them, and faults whenever the
-host function faults. `a0` must equal the reference value exactly (for `memcmp`, -1, 0 or 1).
-
-Meaningful for functions that return to `ra` and are implementable in RV64IM: the memory
-operations. The I/O functions additionally need a vendor I/O mechanism, which this machine does
-not have. Not for `_start` (it does not return) or accelerators (unspecified semantics). -/
-def ImplementsHost (f : zkvm_host_fn) (entry : Nat) : Prop :=
-  ∀ s s', AtEntry s entry → Host.exec f s = .next s' →
-    (haltOf s' = none →
-      ∃ t, CallReturns (native s) t ∧ CalleeSaved s t ∧ xreg t 10 = xreg s' 10 ∧
-        outputRev t = outputRev s' ∧
-        ∀ x, ¬ InRange ((xreg s 2).toNat - stackReserve) stackReserve x →
-          t.mem.get? x = s'.mem.get? x) ∧
-    (haltOf s' = some (.ZKVM_Fault ()) → ∃ n, (run n (native s)).outcome = .fault)
 
 end ZkvmRef

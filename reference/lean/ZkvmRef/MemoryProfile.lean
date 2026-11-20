@@ -21,7 +21,7 @@ structure Range where
 def Range.contains (r : Range) (a len : Nat) : Bool :=
   r.base ≤ a && a + len ≤ r.base + r.size
 
-structure Profile where
+structure MemoryProfile where
   name : String
   execPerm : ExecPerm
   addressSpace : Range
@@ -35,7 +35,7 @@ structure Profile where
 def nullPage : Range := ⟨0, 0x1000⟩
 
 /-- The guard page directly below the stack. -/
-def Profile.guard (p : Profile) : Range := ⟨p.stack.base - 0x1000, 0x1000⟩
+def MemoryProfile.guard (p : MemoryProfile) : Range := ⟨p.stack.base - 0x1000, 0x1000⟩
 
 /-- Parse a `"0x…"` hexadecimal string. -/
 def parseHex (s : String) : Except String Nat := do
@@ -50,7 +50,7 @@ def parseHex (s : String) : Except String Nat := do
     pure (n * 16 + d)) (pure 0)
 
 open Lean in
-def Profile.fromJson (j : Json) : Except String Profile := do
+def MemoryProfile.fromJson (j : Json) : Except String MemoryProfile := do
   let hexField := fun (o : Json) (k : String) => do parseHex (← o.getObjValAs? String k)
   let range := fun (k : String) => do
     let o ← j.getObjVal? k

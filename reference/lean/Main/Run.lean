@@ -13,7 +13,7 @@ def outcomeString : Outcome → String
   | .success => "success"
   | .failure c => s!"failure:{c}"
   | .fault => "fault"
-  | .outOfFuel => "outoffuel"
+  | .leanOutOfFuel => "lean_out_of_fuel"
   | .stuck m => s!"stuck:{m}"
   | .unspecified n => s!"unspecified:{n}"
 
@@ -30,7 +30,7 @@ def main (args : List String) : IO UInt32 := do
     | IO.eprintln s!"bad FUEL '{fuelArg}'"; return 1
   try
     let j ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile profilePath))
-    let p ← IO.ofExcept (Profile.fromJson j)
+    let p ← IO.ofExcept (MemoryProfile.fromJson j)
     let elf ← IO.FS.readBinFile elfPath
     let input ← IO.FS.readBinFile inputPath
     if let .error m := validate p elf then

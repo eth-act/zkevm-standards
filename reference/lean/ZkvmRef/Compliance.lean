@@ -1,21 +1,26 @@
 /-
-Statements of zkVM compliance with the merged zkvm-standards, relative to the
-reference machine. Definitions only; nothing here is proved.
+Statements of compliance with the merged zkvm-standards, relative to the reference machine:
+what a zkVM (`Compliant` and its parts) and a vendor static library (`StaticLibraryConforms`,
+`ImplementsHost`) must satisfy. Definitions only; nothing here is proved. Statements about the
+reference loader itself are in ZkvmRef/LoaderSpec.lean.
 -/
 import ZkvmRef.Loader
 import ZkvmRef.Machine
 import ZkvmRef.Run
+import ZkvmRef.StaticLibrary
+
+open LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
 /-- The reference machine loads `elf` under `p`, runs it on `input`, and halts with `o`.
 Runs that reach an accelerator end in `unspecified`, which is not terminal, so the statements
 below make no claim about them. -/
-def Halts (p : Profile) (elf input : ByteArray) (o : Observation) : Prop :=
+def Halts (p : MemoryProfile) (elf input : ByteArray) (o : Observation) : Prop :=
   ∃ s n, boot p elf input = .ok s ∧ run n s = o ∧ Terminal o.outcome
 
 /-- The reference loader rejects `elf` under `p`. -/
-def Rejects (p : Profile) (elf : ByteArray) : Prop :=
+def Rejects (p : MemoryProfile) (elf : ByteArray) : Prop :=
   ∃ m, validate p elf = .error m
 
 /-- A claimed exit code agrees with a reference outcome. Fault codes are vendor-defined
@@ -46,33 +51,58 @@ structure ZkVM where
   verify2 : Program → List UInt8 → UInt32 → Proof → Bool
 
 /-- The zkVM accepts exactly the ELFs the reference loader accepts. -/
-def LoaderConforms (z : ZkVM) (p : Profile) : Prop :=
+def LoaderConforms (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf, z.setup elf = none ↔ Rejects p elf
 
 /-- Whenever the reference halts, the zkVM's execution produces a matching observation. -/
-def ExecutionConforms (z : ZkVM) (p : Profile) : Prop :=
+def ExecutionConforms (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog input o, z.setup elf = some prog → Halts p elf input o →
     ∃ o', z.execute prog input = some o' ∧ ObsMatches o' o
 
 /-- Type 1 soundness: an accepted proof of output `out` implies some input makes the
 reference succeed with output `out`. -/
-def Type1Sound (z : ZkVM) (p : Profile) : Prop :=
+def Type1Sound (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog out π, z.setup elf = some prog → z.verify1 prog out π = true →
     ∃ input, Halts p elf input ⟨.success, out⟩
 
 /-- Type 2 soundness: an accepted proof of `(out, c)` implies some input makes the reference
 halt with output `out` and an outcome matching `c`. -/
-def Type2Sound (z : ZkVM) (p : Profile) : Prop :=
+def Type2Sound (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog out c π, z.setup elf = some prog → z.verify2 prog out c π = true →
     ∃ input o, Halts p elf input o ∧ o.output = out ∧ CodeMatches c o.outcome
 
 /-- Type 1 completeness: every successful reference run has an accepted proof. -/
-def Type1Complete (z : ZkVM) (p : Profile) : Prop :=
+def Type1Complete (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog input out, z.setup elf = some prog → Halts p elf input ⟨.success, out⟩ →
     ∃ π, z.verify1 prog out π = true
 
 /-- A compliant zkVM conforms in loading and execution and is sound for one proof type. -/
-def Compliant (z : ZkVM) (p : Profile) : Prop :=
+def Compliant (z : ZkVM) (p : MemoryProfile) : Prop :=
   LoaderConforms z p ∧ ExecutionConforms z p ∧ (Type1Sound z p ∨ Type2Sound z p)
+
+-- Static library
+
+/-- A linked guest carries a conforming static library and linker script: all required
+symbols are defined and the ELF entry point is `_start`. -/
+def StaticLibraryConforms (elf : Elf) : Prop :=
+  (∀ n ∈ requiredExports ++ linkerScriptSymbols, Exports elf n) ∧
+    elf.symbol? "_start" = some elf.entry
+
+/-- The library code at `entry` implements host function `f`: from any call of it, running
+the code natively returns to `ra` with the callee-saved registers, `a0`, the public output and
+all memory outside the stack reserve as the host function leaves them, and faults whenever the
+host function faults. `a0` must equal the reference value exactly (for `memcmp`, -1, 0 or 1).
+
+Meaningful for functions that return to `ra` and are implementable in RV64IM: the memory
+operations. The I/O functions additionally need a vendor I/O mechanism, which this machine does
+not have. Not for `_start` (it does not return) or accelerators (unspecified semantics). -/
+def ImplementsHost (f : zkvm_host_fn) (entry : Nat) : Prop :=
+  ∀ s s', AtEntry s entry → Host.exec f s = .next s' →
+    (haltOf s' = none →
+      ∃ t, CallReturns (native s) t ∧ CalleeSaved s t ∧ xreg t 10 = xreg s' 10 ∧
+        outputRev t = outputRev s' ∧
+        ∀ x, ¬ InRange ((xreg s 2).toNat - stackReserve) stackReserve x →
+          t.mem.get? x = s'.mem.get? x) ∧
+    (haltOf s' = some (.ZKVM_Fault ()) → ∃ n, (run n (native s)).outcome = .fault)
 
 end ZkvmRef

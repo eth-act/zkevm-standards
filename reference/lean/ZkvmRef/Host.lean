@@ -3,10 +3,14 @@ Semantics of the host functions declared in reference/sail/zkvm/zkvm_host.sail: 
 machine does when the PC reaches the address of a static-library symbol.
 
 Calling convention (RISC-V psABI): arguments in `a0`…`a2` (`x10`…`x12`), return value in `a0`,
-return address in `ra` (`x1`). Address arithmetic wraps at 64 bits and sizes are full 64-bit
-register values. Memory is accessed byte by byte with the guest's permissions
-(`zkvm_load_byte`, `zkvm_store_byte`); the first failing access ends the run with a fault and
-the function does not return.
+return address in `ra` (`x1`). Integer register convention:
+https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L9-L27
+Integer calling convention:
+https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L176-L180
+
+Address arithmetic wraps at 64 bits and sizes are full 64-bit register values. Memory is
+accessed byte by byte with the guest's permissions (`zkvm_load_byte`, `zkvm_store_byte`); the
+first failing access ends the run with a fault and the function does not return.
 -/
 import ZkvmRef.Machine
 

@@ -1,0 +1,27 @@
+// zkVM modules, used together with sail-riscv's unmodified model/riscv.sail_project:
+//   sail … riscv.sail_project reference/sail/zkvm.sail_project <modules>
+
+zkvm_core {
+  requires prelude, core
+
+  files zkvm/zkvm_state.sail
+}
+
+// Ordered between the extension modules and postlude, whose insts_end.sail closes the
+// scattered currentlyEnabled.
+zkvm_extension_fallback {
+  requires prelude, core
+  after extensions, mops
+  before postlude
+
+  files zkvm/zkvm_extension_fallback.sail
+}
+
+zkvm_machine {
+  requires prelude, core, sys, exceptions, I_insts, postlude, zkvm_core
+  after postlude
+
+  files
+    zkvm/zkvm_step.sail,
+    zkvm/zkvm_host.sail,
+}

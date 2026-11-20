@@ -5,7 +5,7 @@ in the reference machine.
 -/
 import Std.Data.HashMap
 import ZkvmRef.Elf
-import ZkvmRef.Profile
+import ZkvmRef.MemoryProfile
 import ZkvmRef.Machine
 
 open PreSail LeanRV64DExecutable.Functions
@@ -100,7 +100,7 @@ end Loader
 open Loader in
 /-- Validate an ELF against a profile and build its memory image. The checks run in a
 fixed order; the first failure is reported. -/
-def validate (p : Profile) (bytes : ByteArray) : Except String Image := do
+def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
   let b := bytes
   let byte := fun (i : Nat) => b.get! i
   unless b.size ≥ 64 && byte 0 == 0x7f && byte 1 == 0x45 && byte 2 == 0x4c && byte 3 == 0x46 do
@@ -209,12 +209,13 @@ def writeBytesAt (addr : Nat) (bytes : ByteArray) : SailM Unit := do
 /-- Install a validated image: memory map, PC at the entry point, segment contents (file
 bytes, then zeros up to `p_memsz`), the host-function bindings of the static library, and
 what `_start` needs to call `main`. No other register state is standardized. -/
-def install (p : Profile) (img : Image) (m : MState) : Except String MState := do
+def install (p : MemoryProfile) (img : Image) (m : MState) : Except String MState := do
   let sym := fun (n : String) => (img.elf.symbol? n).map (fun v => BitVec.ofNat 64 v.toNat)
   let prog : SailM Unit := do
     writeReg Register.pma_regions (img.regions.map toPmaRegion)
     set_pc_reset_address (BitVec.ofNat 64 img.elf.entry.toNat)
     init_model ""
+    zkvm_reset ()
     for (addr, bytes) in img.segments do
       writeBytesAt addr bytes
     writeReg Register.zkvm_host_table
@@ -226,12 +227,12 @@ def install (p : Profile) (img : Image) (m : MState) : Except String MState := d
   return (← runM prog m).2
 
 /-- Validate `bytes` under `p` and install it in `m`. -/
-def load (p : Profile) (bytes : ByteArray) (m : MState) : Except String MState := do
+def load (p : MemoryProfile) (bytes : ByteArray) (m : MState) : Except String MState := do
   install p (← validate p bytes) m
 
 /-- Place the private input at the start of the input region and record its address and size
 for `read_input`. -/
-def provideInput (p : Profile) (input : ByteArray) (m : MState) : Except String MState := do
+def provideInput (p : MemoryProfile) (input : ByteArray) (m : MState) : Except String MState := do
   if input.size > p.input.size then throw "input larger than the input region"
   let prog : SailM Unit := do
     writeBytesAt p.input.base input
@@ -240,7 +241,7 @@ def provideInput (p : Profile) (input : ByteArray) (m : MState) : Except String 
   return (← runM prog m).2
 
 /-- The machine ready to run `elf` under `p` on `input`. -/
-def boot (p : Profile) (elf input : ByteArray) : Except String MState := do
+def boot (p : MemoryProfile) (elf input : ByteArray) : Except String MState := do
   provideInput p input (← load p elf (← initial))
 
 end ZkvmRef

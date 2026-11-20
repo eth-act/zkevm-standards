@@ -14,7 +14,8 @@ inductive StepResult
   | unspecified (name : String)
   | stuck (msg : String)
 
-/-- One step: the host function bound to the PC if there is one, else one instruction. -/
+/-- One step: the host function bound to the PC if there is one, else one instruction
+(`zkvm_step`, reference/sail/zkvm/zkvm_step.sail). -/
 def step (s : MState) : StepResult :=
   match runM (do zkvm_host_at (← readReg Register.PC)) s with
   | .error m => .stuck m
@@ -24,16 +25,18 @@ def step (s : MState) : StepResult :=
     | .unspecified n => .unspecified n
     | .error m => .stuck m
   | .ok (none, _) =>
-    match runM (try_step 0 true) s with
+    match runM (zkvm_step ()) s with
     | .ok (_, s') => .next s'
     | .error m => .stuck m
 
-/-- How a run ended. `unspecified` names an accelerator the run called. -/
+/-- How a run ended. `unspecified` names an accelerator the run called. `leanOutOfFuel` is not
+an outcome of the standards: the Lean run loop must terminate, so it stops after a given number
+of steps; the statements only consider runs that halt within some number of steps. -/
 inductive Outcome
   | success
   | failure (code : UInt32)
   | fault
-  | outOfFuel
+  | leanOutOfFuel
   | stuck (msg : String)
   | unspecified (name : String)
   deriving DecidableEq, Repr
@@ -53,7 +56,7 @@ def runFinal : Nat → MState → Observation × MState
     | some (.ZKVM_Fault ()) => (⟨.fault, output s⟩, s)
     | none =>
       match fuel with
-      | 0 => (⟨.outOfFuel, output s⟩, s)
+      | 0 => (⟨.leanOutOfFuel, output s⟩, s)
       | n + 1 =>
         match step s with
         | .next s' => runFinal n s'

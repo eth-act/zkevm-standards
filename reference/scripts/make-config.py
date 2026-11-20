@@ -3,10 +3,15 @@
 
 Usage: make-config.py OUT
 
-Starts from reference/build/sail-riscv/config/config.json.in with the placeholders filled as
+Starts from reference/sail-riscv/config/config.json.in with the placeholders filled as
 sail-riscv's CMake does for rv64d_v256_e64.json, disables every extension, then merges
 reference/config/riscv-target.json and reference/config/platform.json on top.
 Rule: riscv-target.json lists the enabled extensions; every other extension is disabled.
+
+Why generated rather than a committed config file: sail-riscv ships only this template (CMake
+placeholders and `//` comments, so not JSON), about 600 lines. Generating keeps the files we
+maintain to the two short overlays, and the rule above keeps holding when a sail-riscv update
+adds extensions, which a committed copy would silently leave at their template defaults.
 """
 import json
 import pathlib
@@ -28,10 +33,13 @@ PLACEHOLDERS = {
 
 
 def disable_all(node):
-    """Set every `supported` key below `node` to false."""
+    """Disable every extension below `node`: each `supported` flag becomes false and each
+    `support_level` (the vector extensions, whose template default is "Full") "Disabled"."""
     if isinstance(node, dict):
         if "supported" in node:
             node["supported"] = False
+        if "support_level" in node:
+            node["support_level"] = "Disabled"
         for value in node.values():
             disable_all(value)
 
@@ -47,7 +55,7 @@ def merge(base, overlay):
 
 def main():
     out = pathlib.Path(sys.argv[1])
-    text = (REF / "build" / "sail-riscv" / "config" / "config.json.in").read_text()
+    text = (REF / "sail-riscv" / "config" / "config.json.in").read_text()
     for key, value in PLACEHOLDERS.items():
         text = text.replace(key, value)
     cfg = json.loads("\n".join(l for l in text.splitlines() if not l.lstrip().startswith("//")))

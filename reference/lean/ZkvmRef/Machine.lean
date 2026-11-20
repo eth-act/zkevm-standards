@@ -3,9 +3,10 @@ The reference machine state: the Sail-generated RISC-V model with the zkVM state
 reference/sail/zkvm/.
 -/
 import LeanRV64DExecutable
--- The generated root module imports only what zkvm_host.sail (the last Sail file) depends
--- on; `init_model` and `reset` live in Model.
+-- The generated root module imports only what zkvm_host.sail (the last Sail file) depends on;
+-- `init_model` and `reset` live in Model, `zkvm_reset` and `zkvm_step` in ZkvmStep.
 import LeanRV64DExecutable.Model
+import LeanRV64DExecutable.ZkvmStep
 import ZkvmRef.RegisterDefaults
 
 open PreSail LeanRV64DExecutable.Functions
@@ -21,8 +22,10 @@ def runM {α : Type} (m : SailM α) (s : MState) : Except String (α × MState) 
   | .ok a s' => .ok (a, s')
   | .error e _ => .error e.print
 
-/-- Give every register that has no value yet its zero value. The generated model only
-stores registers that have a Sail initialiser or have been written. -/
+/-- Give every register that has no value yet its zero value. The generated model only stores
+registers that have a Sail initialiser or have been written; Sail leaves the initial value of the
+others unspecified, but sail-riscv reads some of them before writing them (`init_model` throws
+without them). Zero is the value sail-riscv's C emulator uses. -/
 def fillRegisters : SailM Unit :=
   modify fun s =>
     let regs := allRegisters.foldl

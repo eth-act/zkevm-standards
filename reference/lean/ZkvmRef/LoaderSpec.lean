@@ -18,7 +18,7 @@ def SegmentsLoaded (bytes : ByteArray) (elf : Elf) (s : MState) : Prop :=
 def PcAtEntry (elf : Elf) (s : MState) : Prop := pc s = BitVec.ofNat 64 elf.entry.toNat
 
 /-- No memory region contains a byte of the null page or of the stack guard page. -/
-def GuardsUnmapped (p : Profile) (s : MState) : Prop :=
+def GuardsUnmapped (p : MemoryProfile) (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, ∀ x,
     (InRange nullPage.base nullPage.size x ∨ InRange p.guard.base p.guard.size x) →
       ¬ InRange r.base.toNat r.size.toNat x
@@ -28,12 +28,12 @@ def WXRespected (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, ¬ (r.attributes.writable = true ∧ r.attributes.executable = true)
 
 /-- Executable memory is readable exactly under a read+execute profile. -/
-def ExecMatchesProfile (p : Profile) (s : MState) : Prop :=
+def ExecMatchesProfile (p : MemoryProfile) (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, r.attributes.executable = true →
     (r.attributes.readable = true ↔ p.execPerm = .rx)
 
 /-- Whenever the loader accepts an ELF, the resulting machine satisfies all of the above. -/
-def LoaderCorrect (p : Profile) : Prop :=
+def LoaderCorrect (p : MemoryProfile) : Prop :=
   ∀ bytes m s elf, load p bytes m = .ok s → Elf.parse bytes = .ok elf →
     SegmentsLoaded bytes elf s ∧ PcAtEntry elf s ∧ GuardsUnmapped p s ∧ WXRespected s ∧
       ExecMatchesProfile p s
