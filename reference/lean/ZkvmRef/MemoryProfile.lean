@@ -1,43 +1,21 @@
 /-
-zkVM memory profiles (ELF Loading standard, memory layout restrictions).
+Memory profile files (`reference/memory-profiles/*.json`). The profile's type and meaning are
+Sail's `zkvm_memory_profile` (reference/sail/zkvm/zkvm_state.sail); this file only decodes the
+JSON, with Lean's `Lean.Data.Json` parser.
 -/
 import Lean.Data.Json
+import LeanRV64DExecutable
 
 namespace ZkvmRef
 
-/-- Permission of executable segments the profile accepts: execute-only or read+execute. -/
-inductive ExecPerm
-  | x
-  | rx
-  deriving Repr, DecidableEq, Inhabited
-
-/-- Half-open address range `[base, base + size)`. -/
-structure Range where
-  base : Nat
-  size : Nat
-  deriving Repr, DecidableEq, Inhabited
+/-- The Sail memory profile. -/
+abbrev MemoryProfile := zkvm_memory_profile
 
 /-- `[a, a + len)` lies inside the range. -/
-def Range.contains (r : Range) (a len : Nat) : Bool :=
-  r.base ≤ a && a + len ≤ r.base + r.size
+def _root_.zkvm_range.contains (r : zkvm_range) (a len : Nat) : Bool :=
+  r.base.toNat ≤ a && a + len ≤ r.base.toNat + r.size.toNat
 
-structure MemoryProfile where
-  name : String
-  execPerm : ExecPerm
-  addressSpace : Range
-  bootAddr : Option Nat
-  input : Range
-  ram : Range
-  stack : Range
-  deriving Repr, Inhabited
-
-/-- The page at address 0 that must never be mapped. -/
-def nullPage : Range := ⟨0, 0x1000⟩
-
-/-- The guard page directly below the stack. -/
-def MemoryProfile.guard (p : MemoryProfile) : Range := ⟨p.stack.base - 0x1000, 0x1000⟩
-
-/-- Parse a `"0x…"` hexadecimal string. -/
+/-- Parse a `"0x…"` hexadecimal string. JSON has no hexadecimal numbers. -/
 def parseHex (s : String) : Except String Nat := do
   let some digits := s.dropPrefix? "0x" | throw s!"expected a 0x-prefixed hex string, got '{s}'"
   if digits.isEmpty then throw s!"empty hex string '{s}'"
@@ -51,23 +29,26 @@ def parseHex (s : String) : Except String Nat := do
 
 open Lean in
 def MemoryProfile.fromJson (j : Json) : Except String MemoryProfile := do
-  let hexField := fun (o : Json) (k : String) => do parseHex (← o.getObjValAs? String k)
+  let bits := fun (s : String) => do
+    let n ← parseHex s
+    unless n < 2 ^ 64 do throw s!"'{s}' does not fit in 64 bits"
+    return BitVec.ofNat 64 n
+  let hexField := fun (o : Json) (k : String) => do bits (← o.getObjValAs? String k)
   let range := fun (k : String) => do
     let o ← j.getObjVal? k
-    return Range.mk (← hexField o "base") (← hexField o "size")
-  let execPerm ← match ← j.getObjValAs? String "exec_perm" with
-    | "x" => pure ExecPerm.x
-    | "rx" => pure ExecPerm.rx
+    return ({ base := ← hexField o "base", size := ← hexField o "size" } : zkvm_range)
+  let exec_perm ← match ← j.getObjValAs? String "exec_perm" with
+    | "x" => pure zkvm_exec_perm.ZKVM_EXEC_X
+    | "rx" => pure zkvm_exec_perm.ZKVM_EXEC_RX
     | s => throw s!"unknown exec_perm '{s}'"
-  let bootAddr ← match ← j.getObjVal? "boot_addr" with
+  let boot_addr ← match ← j.getObjVal? "boot_addr" with
     | .null => pure none
-    | .str s => some <$> parseHex s
+    | .str s => some <$> bits s
     | _ => throw "boot_addr must be null or a hex string"
   return {
-    name := ← j.getObjValAs? String "name"
-    execPerm
-    addressSpace := ← range "address_space"
-    bootAddr
+    exec_perm
+    address_space := ← range "address_space"
+    boot_addr
     input := ← range "input"
     ram := ← range "ram"
     stack := ← range "stack"

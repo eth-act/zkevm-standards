@@ -13,9 +13,7 @@ Run from anywhere; outputs go to `../build/` (ignored).
 |                      | `sail-riscv/model/riscv.sail_project` and                   | `lean/.lake/build/bin/zkvm-run`      |
 |                      | `sail/zkvm.sail_project` (modules `I_insts M_insts postlude |                                      |
 |                      | zkvm_extension_fallback zkvm_machine`), patches two         |                                      |
-|                      | generated-code issues, writes                               |                                      |
-|                      | `lean/ZkvmRef/RegisterDefaults.lean`, builds the model and  |                                      |
-|                      | `lean/`                                                     |                                      |
+|                      | generated-code issues, builds the model and `lean/`         |                                      |
 
 `build-lean.sh` is the only entry point needed; it reruns the others every time.
 

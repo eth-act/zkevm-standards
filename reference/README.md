@@ -1,32 +1,52 @@
 # zkVM reference platform (v2)
 
-An executable reference for the merged zkvm-standards (upstream `main` at `f433d48`): a RISC-V
-machine written in Sail and a loader, host-function semantics and compliance statements written in
-Lean. Nothing outside Sail and Lean is part of the specification; the scripts and tests only build
-and exercise it.
+An executable reference for the merged zkvm-standards (upstream `main` at `f433d48`): a RISC-V zkVM
+machine written in Sail, and the loader's validation, the run loop and the compliance statements
+written in Lean. Nothing outside Sail and Lean is part of the specification; the scripts and tests
+only build and exercise it.
 
-| Language | Specifies                                                   | Where                                         |
-| -------- | ----------------------------------------------------------- | --------------------------------------------- |
-| Sail     | RV64IM base machine (pinned [sail-riscv](sail-riscv),       | `sail-riscv/`                                 |
-|          | `bdce62fe`, unmodified)                                     |                                               |
-| Sail     | zkVM state: input location, public output, halt outcome,    | `sail/zkvm/zkvm_state.sail`                   |
-|          | misaligned-access count; termination: `main`'s return value |                                               |
-|          | or a fault                                                  |                                               |
-| Sail     | One zkVM step: every trap is a fault; misaligned data       | `sail/zkvm/zkvm_step.sail`                    |
-|          | accesses are counted                                        |                                               |
-| Sail     | Host functions of the static library: which exist, their    | `sail/zkvm/zkvm_host.sail`                    |
-|          | symbols, when they are invoked; checked byte access         |                                               |
-| Lean     | ELF parsing                                                 | `lean/ZkvmRef/Elf.lean`                       |
-| Lean     | Loader: validation, image installation, host-function       | `lean/ZkvmRef/Loader.lean`                    |
-|          | binding, input placement                                    |                                               |
-| Lean     | Semantics of each host function                             | `lean/ZkvmRef/Host.lean`                      |
-| Lean     | Run loop and observations                                   | `lean/ZkvmRef/Run.lean`                       |
-| Lean     | Compliance statements for zkVMs and vendor static libraries | `lean/ZkvmRef/Compliance.lean` (vocabulary in |
-|          |                                                             | `StaticLibrary.lean`)                         |
-| Lean     | Statements about the reference loader                       | `lean/ZkvmRef/LoaderSpec.lean`                |
+| Language | Specifies                                                    | Where                                         |
+| -------- | ------------------------------------------------------------ | --------------------------------------------- |
+| Sail     | RV64IM base machine (pinned [sail-riscv](sail-riscv),        | `sail-riscv/`                                 |
+|          | `bdce62fe`, unmodified)                                      |                                               |
+| Sail     | Memory profile, run state (input, public output, halt        | `sail/zkvm/zkvm_state.sail`                   |
+|          | outcome, misaligned-access count), termination               |                                               |
+| Sail     | Host functions of the static library: which exist, their     | `sail/zkvm/zkvm_host.sail`                    |
+|          | symbols, when they run, what they do                         |                                               |
+| Sail     | Machine initialisation: memory map and attributes, reset     | `sail/zkvm/zkvm_install.sail`                 |
+|          | values, segment bytes, host bindings, input                  |                                               |
+| Sail     | One zkVM step: host function or instruction; every trap is a | `sail/zkvm/zkvm_step.sail`                    |
+|          | fault; misaligned data accesses are counted                  |                                               |
+| Lean     | ELF parsing; validation of an ELF against the memory         | `lean/ZkvmRef/Elf.lean`, `Loader.lean`        |
+|          | profile, computing what to install                           |                                               |
+| Lean     | Decoding memory-profile files                                | `lean/ZkvmRef/MemoryProfile.lean`             |
+| Lean     | Run loop and observations                                    | `lean/ZkvmRef/Run.lean`                       |
+| Lean     | Compliance statements for zkVMs and vendor static libraries  | `lean/ZkvmRef/Compliance.lean` (vocabulary in |
+|          |                                                              | `StaticLibrary.lean`)                         |
+| Lean     | Statements about the reference loader                        | `lean/ZkvmRef/LoaderSpec.lean`                |
 
 The Lean model of the Sail machine is generated by Sail's Lean backend, so the Lean reference
 executes the Sail definitions; it is the only executable reference.
+
+## What goes in Sail and what goes in Lean
+
+**Sail** holds the machine: its state and every state change a guest can observe (instructions,
+traps and termination, the step, host-function semantics including memory access and faults), and
+properties of the zkVM itself (memory profile, guard regions, reset values, memory attributes).
+**Lean** holds what is not machine behaviour:
+
+- the program artifact: ELF parsing and validation, which decide which programs are accepted and
+  compute the initial state the machine installs;
+- statements (Sail has no propositions or quantifiers);
+- the harness: decoding profile files, the step-bounded run loop, the CLI;
+- later, canonical mathematics that accelerators use (hash functions, curve operations), declared to
+  Sail as external functions.
+
+Why: Sail also generates C, SMT, Isabelle and Rocq, so a machine defined entirely in Sail can be
+reused (an emulator, a differential-testing oracle, SMT checks); one language for the machine means
+one definition to audit, reviewable by the RISC-V and sail-riscv community; and the program side
+consists of pure functions over bytes, which need maps, byte arrays and strings that Sail handles
+poorly and which are simpler to reason about as plain Lean functions than as generated code.
 
 ## Run model
 
@@ -54,12 +74,13 @@ access for the Sail release and the `lean-sail` dependency. From the repository 
 ```sh
 git submodule update --init reference/sail-riscv
 reference/scripts/build-lean.sh      # generate the Lean model, build it and reference/lean
-python3 reference/tests/run.py       # guests and loader rejections against zkvm-run
+python3 reference/tests/run.py       # guests (with zero and canary registers) and loader rejections
 ```
 
-`reference/lean/.lake/build/bin/zkvm-run PROFILE ELF INPUT [FUEL]` runs one guest and prints
-`outcome=… output=<hex> misaligned=<count>`, or `REJECT <message>` (exit 2) if the loader rejects
-the ELF.
+`reference/lean/.lake/build/bin/zkvm-run [--canary] PROFILE ELF INPUT [FUEL]` runs one guest and
+prints `outcome=… output=<hex> misaligned=<count>`, or `REJECT <message>` (exit 2) if the loader
+rejects the ELF. Integer registers `x1`…`x31` start at 0, or at a distinct nonzero pattern with
+`--canary`; the standards leave them unspecified, so a guest's observation must not change.
 
 Contributors: run `reference/scripts/install-git-hooks.sh` once; the pre-commit hook formats staged
 markdown under `reference/` with `reference/scripts/md-wrap-prose` (needs `prettier`) and refuses
@@ -74,8 +95,9 @@ the commit if the formatter cannot run.
 - Nothing is proved: the statements are definitions of type `Prop`.
 - Accelerator semantics are unspecified: a run that calls one ends with `unspecified:<symbol>`, and
   the compliance statements make no claim about it.
-- Reading memory that was never written (outside loaded segments and the input) makes a run `stuck`:
-  the generated model has no value for such bytes.
+- Reading memory that was never written (outside loaded segments and the input), or a register that
+  has no initial value (see [`sail/README.md`](sail/README.md)), makes a run `stuck`: the generated
+  model has no value for it.
 - Host functions are bound through the ELF symbol table, although the ELF standard builds the image
   from program headers only; the loader rejects ELFs without `_start`, `main`, `read_input` or
   `write_output`.

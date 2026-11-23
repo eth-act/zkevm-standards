@@ -17,22 +17,23 @@ def Exports (elf : Elf) (name : String) : Prop := ∃ v, elf.symbol? name = some
 /-- Symbols the static library must export: the entry point, the I/O functions and every
 accelerator. -/
 def requiredExports : List String :=
-  ["_start", "read_input", "write_output"] ++
+  ([zkvm_host_fn.ZKVM_START, .ZKVM_READ_INPUT, .ZKVM_WRITE_OUTPUT].map zkvm_host_symbol) ++
     ((zkvm_host_fns.filter zkvm_host_is_accelerator).map zkvm_host_symbol)
 
 /-- Symbols the linker script must define. -/
 def linkerScriptSymbols : List String := ["_heap_start", "_heap_end"]
 
 /-- Symbols the static library may export (accelerated memory operations). -/
-def optionalExports : List String := ["memcpy", "memmove", "memset", "memcmp"]
+def optionalExports : List String :=
+  [zkvm_host_fn.ZKVM_MEMCPY, .ZKVM_MEMMOVE, .ZKVM_MEMSET, .ZKVM_MEMCMP].map zkvm_host_symbol
 
-/-- Exactly `n` steps, if each of them is an ordinary step. -/
+/-- Exactly `n` steps, if none of them is stuck. -/
 def stepN : Nat → MState → Option MState
   | 0, s => some s
   | n + 1, s =>
     match step s with
-    | .next s' => stepN n s'
-    | _ => none
+    | .ok s' => stepN n s'
+    | .error _ => none
 
 /-- Running from `s` first reaches the return address `ra` of `s` in state `s'`. -/
 def CallReturns (s s' : MState) : Prop :=

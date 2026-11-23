@@ -18,10 +18,11 @@ zkvm_extension_fallback {
 }
 
 zkvm_machine {
-  requires prelude, core, sys, exceptions, I_insts, postlude, zkvm_core
+  requires prelude, core, sys, exceptions, pmp, V_core, Smcntrpmf, I_insts, postlude, zkvm_core
   after postlude
 
   files
-    zkvm/zkvm_step.sail,
     zkvm/zkvm_host.sail,
+    zkvm/zkvm_install.sail,
+    zkvm/zkvm_step.sail,
 }

@@ -78,9 +78,9 @@ def build():
             link(src, ld, [stubs], out / f"{src.stem}.elf")
 
 
-def run_lean(profile, elf, workdir):
-    r = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
-                       capture_output=True, text=True)
+def run_lean(profile, elf, workdir, canary=False):
+    r = subprocess.run([str(ZKVM_RUN), *(["--canary"] if canary else []), str(profile_path(profile)),
+                        str(elf), str(workdir / "input.bin")], capture_output=True, text=True)
     m = re.fullmatch(r"outcome=(.*) output=([0-9a-f]*) misaligned=(\d+)", r.stdout.strip())
     if r.returncode != 0 or not m:
         return f"error:{r.returncode}:{r.stdout.strip()}{r.stderr.strip()}", b"", None
@@ -99,17 +99,21 @@ def symbol_file_byte(elf, name):
 
 
 def case(guest, profile, outcome, output, misaligned=None):
+    """Run with x1..x31 all zero and again with a canary pattern: both must give the expected
+    observation, since the standards leave the initial integer registers unspecified."""
     elf = BUILD / profile / f"{guest}.elf"
     workdir = BUILD / "runs" / profile / guest
     shutil.rmtree(workdir, ignore_errors=True)
     workdir.mkdir(parents=True)
     (workdir / "input.bin").write_bytes(INPUT)
-    got_outcome, got_output, got_mis = run_lean(profile, elf, workdir)
     problems = []
-    if (got_outcome, got_output) != (outcome, output):
-        problems.append(f"got {got_outcome} {got_output!r}")
-    if misaligned is not None and got_mis != misaligned:
-        problems.append(f"misaligned count {got_mis}, expected {misaligned}")
+    for canary in (False, True):
+        regs = "canary" if canary else "zero"
+        got_outcome, got_output, got_mis = run_lean(profile, elf, workdir, canary)
+        if (got_outcome, got_output) != (outcome, output):
+            problems.append(f"{regs} registers: got {got_outcome} {got_output!r}")
+        if misaligned is not None and got_mis != misaligned:
+            problems.append(f"{regs} registers: misaligned count {got_mis}, expected {misaligned}")
     report(f"{profile}/{guest} -> {outcome} {output!r}", not problems,
            "; ".join(problems) + f" (expected {outcome} {output!r})")
 

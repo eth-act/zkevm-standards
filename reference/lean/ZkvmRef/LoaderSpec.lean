@@ -6,6 +6,8 @@ machine state `load` produces. Definitions only; nothing here is proved.
 import ZkvmRef.Loader
 import ZkvmRef.StaticLibrary
 
+open LeanRV64DExecutable.Functions
+
 namespace ZkvmRef
 
 /-- Every non-empty `PT_LOAD` segment is in memory at `p_vaddr`: its file bytes followed by
@@ -20,7 +22,8 @@ def PcAtEntry (elf : Elf) (s : MState) : Prop := pc s = BitVec.ofNat 64 elf.entr
 /-- No memory region contains a byte of the null page or of the stack guard page. -/
 def GuardsUnmapped (p : MemoryProfile) (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, ∀ x,
-    (InRange nullPage.base nullPage.size x ∨ InRange p.guard.base p.guard.size x) →
+    (InRange zkvm_null_page.base.toNat zkvm_null_page.size.toNat x ∨
+      InRange (zkvm_stack_guard p).base.toNat (zkvm_stack_guard p).size.toNat x) →
       ¬ InRange r.base.toNat r.size.toNat x
 
 /-- No memory region is both writable and executable. -/
@@ -30,7 +33,7 @@ def WXRespected (s : MState) : Prop :=
 /-- Executable memory is readable exactly under a read+execute profile. -/
 def ExecMatchesProfile (p : MemoryProfile) (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, r.attributes.executable = true →
-    (r.attributes.readable = true ↔ p.execPerm = .rx)
+    (r.attributes.readable = true ↔ p.exec_perm = .ZKVM_EXEC_RX)
 
 /-- Whenever the loader accepts an ELF, the resulting machine satisfies all of the above. -/
 def LoaderCorrect (p : MemoryProfile) : Prop :=

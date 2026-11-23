@@ -33,7 +33,7 @@ In the reference machine that is three settings:
   `vmem_write_addr` split a misaligned access instead of raising an address-misaligned or
   access-fault exception;
 - `misaligned_exceptions.load_store = none` in every memory region the loader installs
-  (`toPmaRegion` in `../lean/ZkvmRef/Loader.lean`), so the regions accept the split accesses.
+  (`zkvm_pma_region` in `../sail/zkvm/zkvm_install.sail`), so the regions accept the split accesses.
 
 `../tests/guests/misaligned_load.c` checks the result: an 8-byte load from and store to odd
 addresses succeed and the run reports `misaligned=2`.

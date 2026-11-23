@@ -13,11 +13,13 @@ open LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
-/-- The reference machine loads `elf` under `p`, runs it on `input`, and halts with `o`.
-Runs that reach an accelerator end in `unspecified`, which is not terminal, so the statements
-below make no claim about them. -/
+/-- The reference machine loads `elf` under `p`, runs it on `input`, and halts with `o`,
+whatever the initial values of `x1`…`x31`, which the standards leave unspecified: a program
+whose observation depends on them halts with no particular `o`, and the statements below make no
+claim about it. Runs that reach an accelerator end in `unspecified`, which is not terminal, so
+the statements make no claim about them either. -/
 def Halts (p : MemoryProfile) (elf input : ByteArray) (o : Observation) : Prop :=
-  ∃ s n, boot p elf input = .ok s ∧ run n s = o ∧ Terminal o.outcome
+  ∀ gprs, ∃ s n, boot p elf input gprs = .ok s ∧ run n s = o ∧ Terminal o.outcome
 
 /-- The reference loader rejects `elf` under `p`. -/
 def Rejects (p : MemoryProfile) (elf : ByteArray) : Prop :=
@@ -86,7 +88,7 @@ def Compliant (z : ZkVM) (p : MemoryProfile) : Prop :=
 symbols are defined and the ELF entry point is `_start`. -/
 def StaticLibraryConforms (elf : Elf) : Prop :=
   (∀ n ∈ requiredExports ++ linkerScriptSymbols, Exports elf n) ∧
-    elf.symbol? "_start" = some elf.entry
+    elf.symbol? (zkvm_host_symbol .ZKVM_START) = some elf.entry
 
 /-- The library code at `entry` implements host function `f`: from any call of it, running
 the code natively returns to `ra` with the callee-saved registers, `a0`, the public output and
@@ -97,7 +99,7 @@ Meaningful for functions that return to `ra` and are implementable in RV64IM: th
 operations. The I/O functions additionally need a vendor I/O mechanism, which this machine does
 not have. Not for `_start` (it does not return) or accelerators (unspecified semantics). -/
 def ImplementsHost (f : zkvm_host_fn) (entry : Nat) : Prop :=
-  ∀ s s', AtEntry s entry → Host.exec f s = .next s' →
+  ∀ s s', AtEntry s entry → runM (zkvm_host_call f) s = .ok ((), s') →
     (haltOf s' = none →
       ∃ t, CallReturns (native s) t ∧ CalleeSaved s t ∧ xreg t 10 = xreg s' 10 ∧
         outputRev t = outputRev s' ∧

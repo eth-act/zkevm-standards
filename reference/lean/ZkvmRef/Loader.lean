@@ -1,7 +1,8 @@
 /-
-ELF loading and validation (standards/elf-loading-and-validation) against a profile, and the
-loader: validation followed by installing the image, the host-function bindings and the input
-in the reference machine.
+ELF loading and validation (standards/elf-loading-and-validation) against the zkVM's memory
+profile. `validate` decides which ELFs are accepted and computes what to install; Sail's
+`zkvm_install` and `zkvm_provide_input` (reference/sail/zkvm/zkvm_install.sail) put it into
+machine state.
 -/
 import Std.Data.HashMap
 import ZkvmRef.Elf
@@ -12,19 +13,11 @@ open PreSail LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
-/-- Permission of a memory region. -/
-inductive Perm
-  | r
-  | rw
-  | x
-  | rx
-  deriving Repr, DecidableEq, Inhabited
+/-- Permission of a memory region (Sail's `zkvm_perm`). -/
+abbrev Perm := zkvm_perm
 
-structure Region where
-  base : Nat
-  size : Nat
-  perm : Perm
-  deriving Repr, DecidableEq, Inhabited
+/-- A memory region (Sail's `zkvm_region`). -/
+abbrev Region := zkvm_region
 
 /-- A validated program: its ELF, the memory map, and the bytes to place at each `PT_LOAD` vaddr. -/
 structure Image where
@@ -35,7 +28,8 @@ structure Image where
 /-- `0x` followed by lowercase hex digits. -/
 def hex (n : Nat) : String := "0x" ++ String.ofList (Nat.toDigits 16 n)
 
-def pageSize : Nat := 0x1000
+/-- Granularity of memory permissions (Sail's `zkvm_page_size`). -/
+def pageSize : Nat := zkvm_page_size.toNat
 
 namespace Loader
 
@@ -55,9 +49,9 @@ inductive Painter
 /-- Permission given to a page holding a segment with these flags. -/
 def segPerm (flags : UInt32) : Perm :=
   if flags &&& PF_X != 0 then
-    if flags &&& PF_R != 0 then .rx else .x
-  else if flags &&& PF_W != 0 then .rw
-  else .r
+    if flags &&& PF_R != 0 then .ZKVM_PERM_RX else .ZKVM_PERM_X
+  else if flags &&& PF_W != 0 then .ZKVM_PERM_RW
+  else .ZKVM_PERM_R
 
 def isExec (ph : Phdr) : Bool := ph.flags &&& PF_X != 0
 
@@ -73,18 +67,19 @@ def pagesOf (base size : Nat) : List Nat :=
 
 abbrev PageMap := Std.HashMap Nat (Perm × Painter)
 
-def paint (m : PageMap) (r : Range) (perm : Perm) (who : Painter) : PageMap :=
-  (pagesOf r.base r.size).foldl (fun m pg => m.insert pg (perm, who)) m
+def paint (m : PageMap) (r : zkvm_range) (perm : Perm) (who : Painter) : PageMap :=
+  (pagesOf r.base.toNat r.size.toNat).foldl (fun m pg => m.insert pg (perm, who)) m
 
 /-- Merge sorted `(page, perm)` pairs into maximal runs of adjacent equal-permission pages. -/
 def runs (pages : List (Nat × Perm)) : List Region :=
   let step := fun (acc : List Region) ((pg, perm) : Nat × Perm) =>
+    let fresh : Region := { base := BitVec.ofNat 64 (pg * pageSize), size := BitVec.ofNat 64 pageSize, perm }
     match acc with
     | r :: rs =>
-      if r.perm = perm ∧ r.base + r.size = pg * pageSize then
-        { r with size := r.size + pageSize } :: rs
-      else ⟨pg * pageSize, pageSize, perm⟩ :: acc
-    | [] => [⟨pg * pageSize, pageSize, perm⟩]
+      if r.perm == perm && r.base.toNat + r.size.toNat == pg * pageSize then
+        { r with size := r.size + BitVec.ofNat 64 pageSize } :: rs
+      else fresh :: acc
+    | [] => [fresh]
   (pages.foldl step []).reverse
 
 /-- First pair `(a, b)` with `a` before `b` in the list satisfying `f`. -/
@@ -125,14 +120,14 @@ def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
       throw s!"segment {h}: file data outside the file"
     unless ph.paddr == ph.vaddr do throw s!"segment {h}: p_paddr differs from p_vaddr"
     unless v % 4 == 0 do throw s!"segment {h}: p_vaddr not 4-byte aligned"
-    unless p.addressSpace.contains v ph.memsz.toNat do
+    unless p.address_space.contains v ph.memsz.toNat do
       throw s!"segment {h}: outside the addressable space"
     if ph.flags &&& PF_W != 0 && ph.flags &&& PF_X != 0 then
       throw s!"segment {h}: W^X violated"
     if isExec ph then
-      let want := match p.execPerm with
-        | .x => PF_X
-        | .rx => PF_X ||| PF_R
+      let want := match p.exec_perm with
+        | .ZKVM_EXEC_X => PF_X
+        | .ZKVM_EXEC_RX => PF_X ||| PF_R
       unless ph.flags &&& (PF_X ||| PF_R) == want do
         throw s!"segment {h}: executable flags do not match profile"
   -- Overlap of non-empty segments, lower vaddr first.
@@ -145,13 +140,13 @@ def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
   unless entry % 4 == 0 do throw "e_entry not 4-byte aligned"
   let execs := loads.filter isExec
   unless execs.any (segContains · entry) do throw "e_entry not inside an executable segment"
-  if let some boot := p.bootAddr then
-    unless entry == boot do throw "e_entry differs from the fixed boot address"
+  if let some boot := p.boot_addr then
+    unless entry == boot.toNat do throw "e_entry differs from the fixed boot address"
   -- Paint pages.
   let mut pages : PageMap := {}
-  pages := paint pages p.input .r .input
-  pages := paint pages p.ram .rw .ram
-  pages := paint pages p.stack .rw .stack
+  pages := paint pages p.input .ZKVM_PERM_R .input
+  pages := paint pages p.ram .ZKVM_PERM_RW .ram
+  pages := paint pages p.stack .ZKVM_PERM_RW .stack
   for ph in loads do
     if ph.memsz == 0 then continue
     let perm := segPerm ph.flags
@@ -163,12 +158,14 @@ def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
           throw s!"page {hex (pg * pageSize)} shared by segments with different permissions"
       | _ => throw s!"segment page {hex (pg * pageSize)} outside ram"
   let mapped := pages.toList.map (·.1)
-  if mapped.any (fun pg => nullPage.contains (pg * pageSize) pageSize) then
+  if mapped.any (fun pg => zkvm_null_page.contains (pg * pageSize) pageSize) then
     throw "null page is mapped"
-  if mapped.any (fun pg => p.guard.contains (pg * pageSize) pageSize) then
+  if mapped.any (fun pg => (zkvm_stack_guard p).contains (pg * pageSize) pageSize) then
     throw "stack guard page is mapped"
-  -- Symbols the loader binds: the library entry point and I/O functions, and `main`.
-  for n in ["_start", "main", "read_input", "write_output"] do
+  -- Symbols the loader binds: the library entry point and I/O functions (named by Sail's
+  -- `zkvm_host_symbol`) and the guest's `main`.
+  let sym := zkvm_host_symbol
+  for n in [sym .ZKVM_START, "main", sym .ZKVM_READ_INPUT, sym .ZKVM_WRITE_OUTPUT] do
     if elf.symbol? n = none then throw s!"missing symbol {n}"
   let sorted := (pages.toList.map (fun (pg, perm, _) => (pg, perm))).mergeSort
     (fun a c => a.1 ≤ c.1)
@@ -176,72 +173,32 @@ def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
   let segments := loads.map (fun ph => (ph.vaddr.toNat, Elf.segmentBytes b ph))
   return { elf, regions, segments }
 
-/-- The generated PMA region for a loader region. Only read-write regions are main memory. -/
-def toPmaRegion (r : Region) : PMA_Region :=
-  let main := r.perm == .rw
-  let (readable, writable, executable) := match r.perm with
-    | .r => (true, false, false)
-    | .rw => (true, true, false)
-    | .x => (false, false, true)
-    | .rx => (true, false, true)
-  { base := BitVec.ofNat 64 r.base
-    size := BitVec.ofNat 64 r.size
-    attributes := {
-      mem_type := if main then .MainMemory else .IOMemory
-      cacheable := true
-      coherent := main
-      executable, readable, writable
-      read_idempotent := true
-      write_idempotent := true
-      misaligned_exceptions := { load_store := none, vector := none, amo := .AccessFault }
-      atomic_support := .AMONone
-      reservability := .RsrvNone
-      supports_cbo_zero := false
-      supports_pte_read := false
-      supports_pte_write := false }
-    include_in_device_tree := false }
+/-- The bytes of a `ByteArray` as Sail bytes. -/
+def sailBytes (b : ByteArray) : List (BitVec 8) := b.toList.map (·.toBitVec)
 
-/-- Write `bytes` to memory starting at `addr`. -/
-def writeBytesAt (addr : Nat) (bytes : ByteArray) : SailM Unit := do
-  for i in [0:bytes.size] do
-    writeByte (addr + i) (bytes.get! i).toBitVec
-
-/-- Install a validated image: memory map, PC at the entry point, segment contents (file
-bytes, then zeros up to `p_memsz`), the host-function bindings of the static library, and
-what `_start` needs to call `main`. No other register state is standardized. -/
+/-- Install a validated image with Sail's `zkvm_install`. -/
 def install (p : MemoryProfile) (img : Image) (m : MState) : Except String MState := do
   let sym := fun (n : String) => (img.elf.symbol? n).map (fun v => BitVec.ofNat 64 v.toNat)
-  let prog : SailM Unit := do
-    writeReg Register.pma_regions (img.regions.map toPmaRegion)
-    set_pc_reset_address (BitVec.ofNat 64 img.elf.entry.toNat)
-    init_model ""
-    zkvm_reset ()
-    for (addr, bytes) in img.segments do
-      writeBytesAt addr bytes
-    writeReg Register.zkvm_host_table
-      (zkvm_host_fns.filterMap fun f => (sym (zkvm_host_symbol f)).map ({ addr := ·, func := f }))
-    writeReg Register.zkvm_main ((sym "main").getD 0)
-    writeReg Register.zkvm_gp (sym "__global_pointer$")
-    writeReg Register.zkvm_stack_top (BitVec.ofNat 64 (p.stack.base + p.stack.size))
-    writeReg Register.zkvm_started false
+  let segments := img.segments.map fun (a, bs) =>
+    ({ vaddr := BitVec.ofNat 64 a, bytes := sailBytes bs } : zkvm_segment)
+  let table := zkvm_host_fns.filterMap fun f =>
+    (sym (zkvm_host_symbol f)).map ({ addr := ·, func := f } : BitVec 64 → zkvm_host_binding)
+  let prog := zkvm_install p img.regions segments (BitVec.ofNat 64 img.elf.entry.toNat) table
+    ((sym "main").getD 0) (sym "__global_pointer$")
   return (← runM prog m).2
 
 /-- Validate `bytes` under `p` and install it in `m`. -/
 def load (p : MemoryProfile) (bytes : ByteArray) (m : MState) : Except String MState := do
   install p (← validate p bytes) m
 
-/-- Place the private input at the start of the input region and record its address and size
-for `read_input`. -/
-def provideInput (p : MemoryProfile) (input : ByteArray) (m : MState) : Except String MState := do
-  if input.size > p.input.size then throw "input larger than the input region"
-  let prog : SailM Unit := do
-    writeBytesAt p.input.base input
-    writeReg Register.zkvm_input_base (BitVec.ofNat 64 p.input.base)
-    writeReg Register.zkvm_input_size (BitVec.ofNat 64 input.size)
-  return (← runM prog m).2
+/-- Place the private input with Sail's `zkvm_provide_input`. -/
+def provideInput (input : ByteArray) (m : MState) : Except String MState := do
+  let (fits, s) ← runM (zkvm_provide_input (sailBytes input)) m
+  if fits then return s else throw "input larger than the input region"
 
-/-- The machine ready to run `elf` under `p` on `input`. -/
-def boot (p : MemoryProfile) (elf input : ByteArray) : Except String MState := do
-  provideInput p input (← load p elf (← initial))
+/-- The machine ready to run `elf` under `p` on `input`, with integer registers `x1`…`x31`
+initially `gprs` (the standards leave them unspecified). -/
+def boot (p : MemoryProfile) (elf input : ByteArray) (gprs : Gprs) : Except String MState := do
+  provideInput input (← load p elf (← initial gprs))
 
 end ZkvmRef

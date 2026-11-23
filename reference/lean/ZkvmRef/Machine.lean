@@ -1,13 +1,12 @@
 /-
 The reference machine state: the Sail-generated RISC-V model with the zkVM state of
-reference/sail/zkvm/.
+reference/sail/zkvm/, and how Lean runs and inspects it.
 -/
 import LeanRV64DExecutable
--- The generated root module imports only what zkvm_host.sail (the last Sail file) depends on;
--- `init_model` and `reset` live in Model, `zkvm_reset` and `zkvm_step` in ZkvmStep.
+-- The generated root module imports only what zkvm_step.sail (the last Sail file) depends on;
+-- `init_model` and `reset` live in Model.
 import LeanRV64DExecutable.Model
 import LeanRV64DExecutable.ZkvmStep
-import ZkvmRef.RegisterDefaults
 
 open PreSail LeanRV64DExecutable.Functions
 
@@ -22,19 +21,26 @@ def runM {α : Type} (m : SailM α) (s : MState) : Except String (α × MState) 
   | .ok a s' => .ok (a, s')
   | .error e _ => .error e.print
 
-/-- Give every register that has no value yet its zero value. The generated model only stores
-registers that have a Sail initialiser or have been written; Sail leaves the initial value of the
-others unspecified, but sail-riscv reads some of them before writing them (`init_model` throws
-without them). Zero is the value sail-riscv's C emulator uses. -/
-def fillRegisters : SailM Unit :=
-  modify fun s =>
-    let regs := allRegisters.foldl
-      (fun m r => if m.contains r then m else m.insert r (registerDefault r)) s.regs
-    { s with regs }
+/-- Initial values of the integer registers `x1`…`x31` (`x0` is always 0). The standards fix no
+initial register state besides the PC, so the statements quantify over every choice. -/
+abbrev Gprs := Fin 31 → BitVec 64
 
-/-- The machine after Sail's model initialisation, before anything is loaded. -/
-def initial : Except String MState :=
-  (·.2) <$> runM (do sail_model_init (); fillRegisters) default
+/-- All integer registers 0. -/
+def Gprs.zero : Gprs := fun _ => 0
+
+/-- A distinct nonzero pattern per register, to detect runs that depend on initial values. -/
+def Gprs.canary : Gprs := fun i => 0xa5a5_a5a5_a5a5_a500 + BitVec.ofNat 64 (i.val + 1)
+
+/-- The machine after Sail's model initialisation, with `x1`…`x31` set to `gprs`, before
+anything is loaded. Registers without a Sail initialiser stay unset: in Sail their initial value
+is unspecified, and the generated model throws when one is read, so a run that depends on one is
+`stuck` instead of silently using an arbitrary value. `zkvm_reset` (Sail) gives the control
+registers sail-riscv reads before writing them their zkVM values. -/
+def initial (gprs : Gprs) : Except String MState :=
+  (·.2) <$> runM (do
+    sail_model_init ()
+    for i in List.finRange 31 do
+      wX (regno.Regno (i.val + 1)) (gprs i)) default
 
 /-- `len` bytes at `a`, if all of them have been written. -/
 def readMem (s : MState) (a len : Nat) : Option ByteArray :=
