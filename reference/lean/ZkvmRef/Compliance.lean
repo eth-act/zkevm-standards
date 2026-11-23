@@ -101,9 +101,9 @@ def Compliant (z : ZkVM) (p : MemoryProfile) : Prop :=
 
 /-- A linked guest carries a conforming static library and linker script: all required
 symbols are defined and the ELF entry point is `_start`. -/
-def StaticLibraryConforms (elf : Elf) : Prop :=
+def StaticLibraryConforms (elf : zkvm_elf) : Prop :=
   (∀ n ∈ requiredExports ++ linkerScriptSymbols, Exports elf n) ∧
-    elf.symbol? (zkvm_host_symbol .ZKVM_START) = some elf.entry
+    zkvm_symbol_value elf.symbols (zkvm_host_symbol .ZKVM_START) = some (BitVec.ofInt 64 elf.entry)
 
 /-- The library code at `entry` implements host function `f`: from any call of it, running
 the code natively returns to `ra` with the callee-saved registers, `a0`, the public output and

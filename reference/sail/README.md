@@ -1,54 +1,58 @@
-# Sail: the zkVM machine
+# Sail: the zkVM platform
 
-The reference machine is the pinned sail-riscv model (`../sail-riscv`, unmodified) plus the modules
+The reference platform is the pinned sail-riscv model (`../sail-riscv`, unmodified) plus the modules
 declared in `zkvm.sail_project`. `../scripts/build-lean.sh` passes both project files to Sail:
 `sail … riscv.sail_project reference/sail/zkvm.sail_project <modules>`. Sail resolves `requires`,
 `after` and `before` across project files, so nothing in sail-riscv is patched.
 
-Everything a guest can observe about the machine is defined here: state, termination, the step
-(instructions and host functions), host-function semantics, the memory profile and machine
-initialisation. Lean (`../lean`) holds what is not machine behaviour: ELF parsing and validation,
-decoding profile files, the run loop and the statements. See [`../README.md`](../README.md) for the
-placement rule.
+The platform is defined here: state, termination, the step (instructions and host functions),
+host-function semantics, the memory profile, the loader (ELF parsing and validation) and machine
+initialisation. Lean (`../lean`) decodes input files, runs the step, and holds the statements. See
+[`../README.md`](../README.md) for the placement rule.
 
 ## Modules (`zkvm.sail_project`, files in `zkvm/`)
 
-| Module                    | File                           | Contents                                                    |
-| ------------------------- | ------------------------------ | ----------------------------------------------------------- |
-| `zkvm_core`               | `zkvm_state.sail`              | memory profile (`zkvm_memory_profile`, register             |
-|                           |                                | `zkvm_profile`, `zkvm_page_size`, `zkvm_null_page`,         |
-|                           |                                | `zkvm_stack_guard`); `zkvm_outcome` (`ZKVM_Success`,        |
-|                           |                                | `ZKVM_Failure(code)`, `ZKVM_Fault`,                         |
-|                           |                                | `ZKVM_Unspecified(symbol)`); registers `zkvm_halt`,         |
-|                           |                                | `zkvm_output_rev` (public output, newest byte first),       |
-|                           |                                | `zkvm_input_size`, `zkvm_misaligned_accesses`; termination  |
-|                           |                                | `zkvm_halt_with` (first outcome wins), `zkvm_exit`,         |
-|                           |                                | `zkvm_host_fault`                                           |
-| `zkvm_extension_fallback` | `zkvm_extension_fallback.sail` | last clause of `currentlyEnabled`: extensions whose module  |
-|                           |                                | is not built are disabled (asserts the configuration does   |
-|                           |                                | not claim them). Ordered `after extensions, mops` and       |
-|                           |                                | `before postlude`, so the built extensions' clauses match   |
-|                           |                                | first and the clause precedes `end currentlyEnabled` in     |
-|                           |                                | `postlude/insts_end.sail`                                   |
-| `zkvm_machine`            | `zkvm_host.sail`               | `zkvm_host_fn` (26 library functions, each with its C       |
-|                           |                                | prototype), `zkvm_host_fns`, `zkvm_host_symbol`,            |
-|                           |                                | `zkvm_host_is_accelerator`; loader-installed registers      |
-|                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;  |
-|                           |                                | `zkvm_host_at(pc)`; checked byte access `zkvm_load_byte`,   |
-|                           |                                | `zkvm_store_byte`; the semantics of `_start`, `read_input`, |
-|                           |                                | `write_output`, `memcpy`, `memmove`, `memset`, `memcmp`     |
-|                           |                                | (`zkvm_host_call`); an accelerator call halts with          |
-|                           |                                | `ZKVM_Unspecified`                                          |
-| `zkvm_machine`            | `zkvm_install.sail`            | machine initialisation: `zkvm_install` (profile, memory map |
-|                           |                                | with its PMA attributes, PC, reset, segment bytes, host     |
-|                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values  |
-|                           |                                | for the control registers sail-riscv reads before writing,  |
-|                           |                                | and the trap vector `zkvm_trap_vector`, address 0 in the    |
-|                           |                                | never-mapped null page)                                     |
-| `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: nothing once halted; else the host function    |
-|                           |                                | bound to the PC, or one instruction via sail-riscv's        |
-|                           |                                | `try_step`, counting a misaligned data access first and     |
-|                           |                                | halting with `ZKVM_Fault()` if the instruction trapped      |
+| Module                    | File                           | Contents                                                     |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| `zkvm_core`               | `zkvm_state.sail`              | memory profile (`zkvm_memory_profile`, register              |
+|                           |                                | `zkvm_profile`, `zkvm_page_size`, `zkvm_null_page`,          |
+|                           |                                | `zkvm_stack_guard`); `zkvm_outcome` (`ZKVM_Success`,         |
+|                           |                                | `ZKVM_Failure(code)`, `ZKVM_Fault`,                          |
+|                           |                                | `ZKVM_Unspecified(symbol)`); registers `zkvm_halt`,          |
+|                           |                                | `zkvm_output_rev` (public output, newest byte first),        |
+|                           |                                | `zkvm_input_size`, `zkvm_misaligned_accesses`; termination   |
+|                           |                                | `zkvm_halt_with` (first outcome wins), `zkvm_exit`,          |
+|                           |                                | `zkvm_host_fault`                                            |
+| `zkvm_extension_fallback` | `zkvm_extension_fallback.sail` | last clause of `currentlyEnabled`: extensions whose module   |
+|                           |                                | is not built are disabled (asserts the configuration does    |
+|                           |                                | not claim them). Ordered `after extensions, mops` and        |
+|                           |                                | `before postlude`, so the built extensions' clauses match    |
+|                           |                                | first and the clause precedes `end currentlyEnabled` in      |
+|                           |                                | `postlude/insts_end.sail`                                    |
+| `zkvm_machine`            | `zkvm_host.sail`               | `zkvm_host_fn` (26 library functions, each with its C        |
+|                           |                                | prototype), `zkvm_host_fns`, `zkvm_host_symbol`,             |
+|                           |                                | `zkvm_host_is_accelerator`; loader-installed registers       |
+|                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;   |
+|                           |                                | `zkvm_host_at(pc)`; checked byte access `zkvm_load_byte`,    |
+|                           |                                | `zkvm_store_byte`; the semantics of `_start`, `read_input`,  |
+|                           |                                | `write_output`, `memcpy`, `memmove`, `memset`, `memcmp`      |
+|                           |                                | (`zkvm_host_call`); an accelerator call halts with           |
+|                           |                                | `ZKVM_Unspecified`                                           |
+| `zkvm_machine`            | `zkvm_loader.sail`             | the loader: ELF parsing from a byte vector (`zkvm_rd`,       |
+|                           |                                | program headers, the symbol table), `zkvm_validate` (the     |
+|                           |                                | checks of the ELF standard and the memory-profile checks,    |
+|                           |                                | first failure reported as a message), the memory map as page |
+|                           |                                | runs (`zkvm_paint`, `zkvm_regions_of`), the required symbols |
+| `zkvm_machine`            | `zkvm_install.sail`            | machine initialisation: `zkvm_install` (profile, memory map  |
+|                           |                                | with its PMA attributes, PC, reset, segment bytes, host      |
+|                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values   |
+|                           |                                | for the control registers sail-riscv reads before writing,   |
+|                           |                                | and the trap vector `zkvm_trap_vector`, address 0 in the     |
+|                           |                                | never-mapped null page)                                      |
+| `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: nothing once halted; else the host function     |
+|                           |                                | bound to the PC, or one instruction via sail-riscv's         |
+|                           |                                | `try_step`, counting a misaligned data access first and      |
+|                           |                                | halting with `ZKVM_Fault()` if the instruction trapped       |
 
 `zkvm_load_byte`/`zkvm_store_byte` go through sail-riscv's `vmem_read_addr`/`vmem_write_addr`, so
 host functions access memory with the same permission checks as guest loads and stores.

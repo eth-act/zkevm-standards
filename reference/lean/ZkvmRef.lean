@@ -1,4 +1,3 @@
-import ZkvmRef.Elf
 import ZkvmRef.MemoryProfile
 import ZkvmRef.Machine
 import ZkvmRef.Loader

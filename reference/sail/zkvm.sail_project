@@ -23,6 +23,7 @@ zkvm_machine {
 
   files
     zkvm/zkvm_host.sail,
+    zkvm/zkvm_loader.sail,
     zkvm/zkvm_install.sail,
     zkvm/zkvm_step.sail,
 }

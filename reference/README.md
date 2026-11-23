@@ -1,52 +1,56 @@
 # zkVM reference platform (v2)
 
 An executable reference for the merged zkvm-standards (upstream `main` at `f433d48`): a RISC-V zkVM
-machine written in Sail, and the loader's validation, the run loop and the compliance statements
-written in Lean. Nothing outside Sail and Lean is part of the specification; the scripts and tests
-only build and exercise it.
+platform written in Sail (machine and loader), and the run loop and compliance statements written in
+Lean. Nothing outside Sail and Lean is part of the specification; the scripts and tests only build
+and exercise it.
 
-| Language | Specifies                                                    | Where                                         |
-| -------- | ------------------------------------------------------------ | --------------------------------------------- |
-| Sail     | RV64IM base machine (pinned [sail-riscv](sail-riscv),        | `sail-riscv/`                                 |
-|          | `bdce62fe`, unmodified)                                      |                                               |
-| Sail     | Memory profile, run state (input, public output, halt        | `sail/zkvm/zkvm_state.sail`                   |
-|          | outcome, misaligned-access count), termination               |                                               |
-| Sail     | Host functions of the static library: which exist, their     | `sail/zkvm/zkvm_host.sail`                    |
-|          | symbols, when they run, what they do                         |                                               |
-| Sail     | Machine initialisation: memory map and attributes, reset     | `sail/zkvm/zkvm_install.sail`                 |
-|          | values, segment bytes, host bindings, input                  |                                               |
-| Sail     | One zkVM step: host function or instruction; every trap is a | `sail/zkvm/zkvm_step.sail`                    |
-|          | fault; misaligned data accesses are counted                  |                                               |
-| Lean     | ELF parsing; validation of an ELF against the memory         | `lean/ZkvmRef/Elf.lean`, `Loader.lean`        |
-|          | profile, computing what to install                           |                                               |
-| Lean     | Decoding memory-profile files                                | `lean/ZkvmRef/MemoryProfile.lean`             |
-| Lean     | Run loop and observations                                    | `lean/ZkvmRef/Run.lean`                       |
-| Lean     | Compliance statements for zkVMs and vendor static libraries  | `lean/ZkvmRef/Compliance.lean` (vocabulary in |
-|          |                                                              | `StaticLibrary.lean`)                         |
-| Lean     | Statements about the reference loader                        | `lean/ZkvmRef/LoaderSpec.lean`                |
+| Language | Specifies                                                    | Where                                            |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------ |
+| Sail     | RV64IM base machine (pinned [sail-riscv](sail-riscv),        | `sail-riscv/`                                    |
+|          | `bdce62fe`, unmodified)                                      |                                                  |
+| Sail     | Memory profile, run state (input, public output, halt        | `sail/zkvm/zkvm_state.sail`                      |
+|          | outcome, misaligned-access count), termination               |                                                  |
+| Sail     | Host functions of the static library: which exist, their     | `sail/zkvm/zkvm_host.sail`                       |
+|          | symbols, when they run, what they do                         |                                                  |
+| Sail     | Loader: ELF parsing, validation against the memory profile,  | `sail/zkvm/zkvm_loader.sail`                     |
+|          | the memory map, symbol binding                               |                                                  |
+| Sail     | Machine initialisation: memory attributes, reset values,     | `sail/zkvm/zkvm_install.sail`                    |
+|          | segment bytes, host bindings, input                          |                                                  |
+| Sail     | One zkVM step: host function or instruction; every trap is a | `sail/zkvm/zkvm_step.sail`                       |
+|          | fault; misaligned data accesses are counted                  |                                                  |
+| Lean     | Decoding memory-profile files; passing file bytes to the     | `lean/ZkvmRef/MemoryProfile.lean`, `Loader.lean` |
+|          | Sail loader                                                  |                                                  |
+| Lean     | Run loop and observations                                    | `lean/ZkvmRef/Run.lean`                          |
+| Lean     | Compliance statements for zkVMs and vendor static libraries  | `lean/ZkvmRef/Compliance.lean` (vocabulary in    |
+|          |                                                              | `StaticLibrary.lean`)                            |
+| Lean     | Statements about the reference loader                        | `lean/ZkvmRef/LoaderSpec.lean`                   |
 
 The Lean model of the Sail machine is generated by Sail's Lean backend, so the Lean reference
 executes the Sail definitions; it is the only executable reference.
 
 ## What goes in Sail and what goes in Lean
 
-**Sail** holds the machine: its state and every state change a guest can observe (instructions,
-traps and termination, the step, host-function semantics including memory access and faults), and
-properties of the zkVM itself (memory profile, guard regions, reset values, memory attributes).
-**Lean** holds what is not machine behaviour:
+Platform definitions and logic go in Sail: the machine's state and every state change a guest can
+observe, the properties of the zkVM (memory profile, guard regions, reset values, memory
+attributes), and the loader. The exceptions:
 
-- the program artifact: ELF parsing and validation, which decide which programs are accepted and
-  compute the initial state the machine installs;
-- statements (Sail has no propositions or quantifiers);
-- the harness: decoding profile files, the step-bounded run loop, the CLI;
-- later, canonical mathematics that accelerators use (hash functions, curve operations), declared to
-  Sail as external functions.
+- **Statements** are Lean: Sail has no propositions or quantifiers.
+- **Accelerator (precompile) specifications** will be Lean, or another formal-verification language:
+  hash functions and curve operations have, or will have, canonical formal specifications. Sail
+  keeps the machine-facing part (arguments, memory access, faults) and would call them as external
+  functions.
+- **Performance**: code may move to a more conventional language if Sail's generated code proves too
+  slow. Nothing has needed this so far: loading and running an 8.4 MB guest with 4 MB of initialised
+  data takes 14.5 s with the loader in Sail, against 7.6 s with the earlier Lean loader.
 
-Why: Sail also generates C, SMT, Isabelle and Rocq, so a machine defined entirely in Sail can be
-reused (an emulator, a differential-testing oracle, SMT checks); one language for the machine means
-one definition to audit, reviewable by the RISC-V and sail-riscv community; and the program side
-consists of pure functions over bytes, which need maps, byte arrays and strings that Sail handles
-poorly and which are simpler to reason about as plain Lean functions than as generated code.
+What remains in Lean is not platform logic: decoding input files (memory profiles, ELF bytes) into
+Sail values, the step-bounded run loop and the CLI, and the statements.
+
+Why Sail for the platform: Sail also generates C, SMT, Isabelle and Rocq, so a platform defined
+entirely in Sail can be reused (an emulator, a differential-testing oracle, SMT checks), and one
+language for the platform means one definition to audit, reviewable by the RISC-V and sail-riscv
+community.
 
 ## Run model
 

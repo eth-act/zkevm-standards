@@ -1,23 +1,20 @@
 # Lean reference
 
 Package `zkvm-ref`, depending on the Lean model generated from Sail
-(`../build/lean/Lean_RV64D_executable`, see `../scripts/build-lean.sh`). The machine, including
-host-function semantics and machine initialisation, is Sail (`../sail`); this package holds what is
-not machine behaviour: ELF parsing and validation, decoding profile files, the run loop, the
-statements and the executable. See [`../README.md`](../README.md) for the placement rule.
+(`../build/lean/Lean_RV64D_executable`, see `../scripts/build-lean.sh`). The platform, including the
+loader, host-function semantics and machine initialisation, is Sail (`../sail`); this package
+decodes input files, runs the step, and holds the statements and the executable. See
+[`../README.md`](../README.md) for the placement rule.
 
 | Module                       | Contents                                                     |
 | ---------------------------- | ------------------------------------------------------------ |
-| `ZkvmRef/Elf.lean`           | ELF64 parsing: header, program headers, symbol table,        |
-|                              | segment bytes                                                |
 | `ZkvmRef/MemoryProfile.lean` | decodes `../memory-profiles/*.json` into Sail's              |
 |                              | `zkvm_memory_profile` (with Lean's `Lean.Data.Json`)         |
 | `ZkvmRef/Machine.lean`       | machine state `MState`, `runM`, initial integer registers    |
 |                              | `Gprs` (`zero`, `canary`), `initial`, accessors (`haltOf`,   |
 |                              | `output`, `misalignedCount`, `hostTable`, `pmaRegions`, …)   |
-| `ZkvmRef/Loader.lean`        | `validate` (the checks of the ELF standard, first failure    |
-|                              | reported; computes the memory map, segments and host         |
-|                              | bindings), `install` and `provideInput` (call Sail's         |
+| `ZkvmRef/Loader.lean`        | passes file bytes to the Sail loader: `validate` (Sail's     |
+|                              | `zkvm_validate`), `install` and `provideInput` (Sail's       |
 |                              | `zkvm_install` and `zkvm_provide_input`), `load`, `boot`     |
 | `ZkvmRef/Run.lean`           | `step` (Sail's `zkvm_step`), `runFinal`, `run`, `Outcome`    |
 |                              | (including `leanOutOfFuel`, which is not a standard          |

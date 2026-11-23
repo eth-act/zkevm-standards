@@ -4,15 +4,14 @@ standards/io-interface, standards/accelerated-memory-operations,
 standards/c-interface-accelerators): exported symbols, calls and returns, the psABI register
 rules, and memory permissions. The statements built from them are in ZkvmRef/Compliance.lean.
 -/
-import ZkvmRef.Elf
 import ZkvmRef.Run
 
 open PreSail LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
-/-- The ELF's symbol table defines `name`. -/
-def Exports (elf : Elf) (name : String) : Prop := ∃ v, elf.symbol? name = some v
+/-- The ELF's symbol table (as parsed by Sail's `zkvm_validate`) defines `name`. -/
+def Exports (elf : zkvm_elf) (name : String) : Prop := ∃ v, zkvm_symbol_value elf.symbols name = some v
 
 /-- Symbols the static library must export: the entry point, the I/O functions and every
 accelerator. -/

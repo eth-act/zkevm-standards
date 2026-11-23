@@ -10,14 +10,20 @@ open LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
 
+/-- The memory image of a segment: its `p_filesz` file bytes followed by `p_memsz - p_filesz`
+zero bytes. -/
+def segmentBytes (b : ByteArray) (ph : zkvm_phdr) : ByteArray :=
+  let off := ph.offset.toNat
+  b.extract off (off + ph.filesz.toNat) ++ ⟨Array.replicate (ph.memsz.toNat - ph.filesz.toNat) 0⟩
+
 /-- Every non-empty `PT_LOAD` segment is in memory at `p_vaddr`: its file bytes followed by
 `p_memsz - p_filesz` zeros (bss zeroing). -/
-def SegmentsLoaded (bytes : ByteArray) (elf : Elf) (s : MState) : Prop :=
-  ∀ ph ∈ elf.phdrs.toList, ph.ptype = Loader.PT_LOAD → ph.memsz ≠ 0 →
-    readMem s ph.vaddr.toNat ph.memsz.toNat = some (Elf.segmentBytes bytes ph)
+def SegmentsLoaded (bytes : ByteArray) (img : Image) (s : MState) : Prop :=
+  ∀ ph ∈ img.elf.phdrs, ph.ptype = ZKVM_PT_LOAD → ph.memsz ≠ 0 →
+    readMem s ph.vaddr.toNat ph.memsz.toNat = some (segmentBytes bytes ph)
 
 /-- Execution starts at `e_entry`. -/
-def PcAtEntry (elf : Elf) (s : MState) : Prop := pc s = BitVec.ofNat 64 elf.entry.toNat
+def PcAtEntry (img : Image) (s : MState) : Prop := pc s = BitVec.ofInt 64 img.elf.entry
 
 /-- No memory region contains a byte of the null page or of the stack guard page. -/
 def GuardsUnmapped (p : MemoryProfile) (s : MState) : Prop :=
@@ -37,8 +43,8 @@ def ExecMatchesProfile (p : MemoryProfile) (s : MState) : Prop :=
 
 /-- Whenever the loader accepts an ELF, the resulting machine satisfies all of the above. -/
 def LoaderCorrect (p : MemoryProfile) : Prop :=
-  ∀ bytes m s elf, load p bytes m = .ok s → Elf.parse bytes = .ok elf →
-    SegmentsLoaded bytes elf s ∧ PcAtEntry elf s ∧ GuardsUnmapped p s ∧ WXRespected s ∧
+  ∀ bytes m s img, validate p bytes = .ok img → load p bytes m = .ok s →
+    SegmentsLoaded bytes img s ∧ PcAtEntry img s ∧ GuardsUnmapped p s ∧ WXRespected s ∧
       ExecMatchesProfile p s
 
 end ZkvmRef
