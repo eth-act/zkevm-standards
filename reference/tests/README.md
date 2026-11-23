@@ -9,9 +9,9 @@ messages. It ends with `passed N, failed M` and exits non-zero on any failure. B
 
 ## Stub library and linker script
 
-- `stublib/stubs.S`: one `unimp` per library symbol (`_start`, `read_input`, `write_output`,
-  `memcpy`, `memmove`, `memset`, `memcmp` and the 19 accelerators). Never executed: the machine
-  performs the host function when the PC reaches the symbol.
+- Stub library: `run.py` generates `build/tests/stubs.S` with one `unimp` per symbol that
+  `zkvm-run --list-symbols` prints (Sail's `zkvm_library`). Never executed: the machine performs the
+  host function when the PC reaches the symbol.
 - `stublib/link.ld.in`: text at the start of RAM, then rodata and data/bss segments, each
   page-aligned; defines `_heap_start`, `_heap_end` and `__global_pointer$`. `run.py` fills
   `@TEXT_FLAGS@` (1 for `x`, 5 for `rx`), `@RAM_BASE@` and `@RAM_END@` from the profile.

@@ -103,7 +103,8 @@ def Compliant (z : ZkVM) (p : MemoryProfile) : Prop :=
 symbols are defined and the ELF entry point is `_start`. -/
 def StaticLibraryConforms (elf : zkvm_elf) : Prop :=
   (∀ n ∈ requiredExports ++ linkerScriptSymbols, Exports elf n) ∧
-    zkvm_symbol_value elf.symbols (zkvm_host_symbol .ZKVM_START) = some (BitVec.ofInt 64 elf.entry)
+    zkvm_symbol_value elf.symbols (zkvm_library_symbol zkvm_library .ZKVM_START) =
+      some (BitVec.ofInt 64 elf.entry)
 
 /-- The library code at `entry` implements host function `f`: from any call of it, running
 the code natively returns to `ra` with the callee-saved registers, `a0`, the public output and
@@ -113,7 +114,7 @@ host function faults. `a0` must equal the reference value exactly (for `memcmp`,
 Meaningful for functions that return to `ra` and are implementable in RV64IM: the memory
 operations. The I/O functions additionally need a vendor I/O mechanism, which this machine does
 not have. Not for `_start` (it does not return) or accelerators (unspecified semantics). -/
-def ImplementsHost (f : zkvm_host_fn) (entry : Nat) : Prop :=
+def ImplementsHost (f : zkvm_library_fn) (entry : Nat) : Prop :=
   ∀ s s', AtEntry s entry → runM (zkvm_host_call f) s = .ok ((), s') →
     (haltOf s' = none →
       ∃ t, CallReturns (native s) t ∧ CalleeSaved s t ∧ xreg t 10 = xreg s' 10 ∧

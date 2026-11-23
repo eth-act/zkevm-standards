@@ -6,6 +6,9 @@ Loads ELF under PROFILE, runs it on INPUT in the reference machine and prints
 distinct nonzero pattern with `--canary` (the standards leave them unspecified, so a conforming
 guest's observation must not change). Exit codes: 0 ran, 2 rejected (prints `REJECT <message>`),
 1 other errors.
+
+zkvm-run --list-symbols prints the symbol of every static-library function (Sail's
+`zkvm_library`), one per line; the tests build their stub library from it.
 -/
 import ZkvmRef
 
@@ -24,6 +27,9 @@ def hexByte (b : UInt8) : String :=
   String.ofList (if d.length < 2 then '0' :: d else d)
 
 def main (args : List String) : IO UInt32 := do
+  if args == ["--list-symbols"] then
+    for f in LeanRV64DExecutable.Functions.zkvm_library do IO.println f.symbol
+    return 0
   let (gprs, args) := if args.head? == some "--canary" then (Gprs.canary, args.tail)
     else (Gprs.zero, args)
   let (profilePath, elfPath, inputPath, fuelArg) ← match args with

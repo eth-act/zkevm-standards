@@ -443,8 +443,9 @@ function zkvm_paint_segments(ps, phs) =
 
 // Symbols the loader requires: the library entry point and I/O functions, and the guest's main.
 let zkvm_required_symbols : list(string) =
-  [| zkvm_host_symbol(ZKVM_START), "main", zkvm_host_symbol(ZKVM_READ_INPUT),
-     zkvm_host_symbol(ZKVM_WRITE_OUTPUT) |]
+  [| zkvm_library_symbol(zkvm_library, ZKVM_START), "main",
+     zkvm_library_symbol(zkvm_library, ZKVM_READ_INPUT),
+     zkvm_library_symbol(zkvm_library, ZKVM_WRITE_OUTPUT) |]
 
 val zkvm_first_missing : (list(zkvm_symbol), list(string)) -> option(string)
 function zkvm_first_missing(syms, names) =

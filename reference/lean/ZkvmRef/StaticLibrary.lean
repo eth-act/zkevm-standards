@@ -13,18 +13,18 @@ namespace ZkvmRef
 /-- The ELF's symbol table (as parsed by Sail's `zkvm_validate`) defines `name`. -/
 def Exports (elf : zkvm_elf) (name : String) : Prop := ∃ v, zkvm_symbol_value elf.symbols name = some v
 
-/-- Symbols the static library must export: the entry point, the I/O functions and every
-accelerator. -/
+/-- Symbols the static library must export (Sail's `zkvm_library`, `required` functions): the
+entry point, the I/O functions and every accelerator. -/
 def requiredExports : List String :=
-  ([zkvm_host_fn.ZKVM_START, .ZKVM_READ_INPUT, .ZKVM_WRITE_OUTPUT].map zkvm_host_symbol) ++
-    ((zkvm_host_fns.filter zkvm_host_is_accelerator).map zkvm_host_symbol)
+  (zkvm_library.filter (·.required)).map (·.symbol)
 
 /-- Symbols the linker script must define. -/
 def linkerScriptSymbols : List String := ["_heap_start", "_heap_end"]
 
-/-- Symbols the static library may export (accelerated memory operations). -/
+/-- Symbols the static library may export (Sail's `zkvm_library`, the other functions: the
+accelerated memory operations). -/
 def optionalExports : List String :=
-  [zkvm_host_fn.ZKVM_MEMCPY, .ZKVM_MEMMOVE, .ZKVM_MEMSET, .ZKVM_MEMCMP].map zkvm_host_symbol
+  (zkvm_library.filter (!·.required)).map (·.symbol)
 
 /-- Exactly `n` steps, if none of them is stuck. -/
 def stepN : Nat → MState → Option MState

@@ -66,14 +66,29 @@ def link(src, ld, objs, elf):
     subprocess.run([CC, *CFLAGS, "-T", str(ld), str(src), *map(str, objs), "-o", str(elf)], check=True)
 
 
+def stub_library(path):
+    """One 4-byte label per static-library symbol, as listed by `zkvm-run --list-symbols` (Sail's
+    `zkvm_library`). Never executed: the machine performs the host function when the PC reaches
+    the symbol."""
+    symbols = subprocess.run([str(ZKVM_RUN), "--list-symbols"], capture_output=True, text=True,
+                             check=True).stdout.split()
+    lines = ["  .section .text", "  .balign 4"]
+    for s in symbols:
+        lines += ["", f"  .globl {s}", f"{s}:", "  unimp"]
+    path.write_text("\n".join(lines) + "\n")
+
+
 def build():
+    BUILD.mkdir(parents=True, exist_ok=True)
+    stubs_src = BUILD / "stubs.S"
+    stub_library(stubs_src)
     for profile in PROFILES:
         out = BUILD / profile
         out.mkdir(parents=True, exist_ok=True)
         ld = out / "link.ld"
         linker_script(profile, ld)
         stubs = out / "stubs.o"
-        subprocess.run([CC, *CFLAGS, "-c", str(STUBLIB / "stubs.S"), "-o", str(stubs)], check=True)
+        subprocess.run([CC, *CFLAGS, "-c", str(stubs_src), "-o", str(stubs)], check=True)
         for src in sorted((REF / "tests" / "guests").glob("*.c")):
             link(src, ld, [stubs], out / f"{src.stem}.elf")
 

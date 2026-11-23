@@ -73,12 +73,12 @@ function zkvm_write_segments(b, phs) =
     },
   }
 
-// The bindings of the host-function symbols the ELF defines, in zkvm_host_fns order.
-val zkvm_bindings : (list(zkvm_symbol), list(zkvm_host_fn)) -> list(zkvm_host_binding)
+// The bindings of the library functions whose symbols the ELF defines, in zkvm_library order.
+val zkvm_bindings : (list(zkvm_symbol), list(zkvm_library_fn)) -> list(zkvm_host_binding)
 function zkvm_bindings(syms, fs) =
   match fs {
     [||] => [||],
-    f :: rest => match zkvm_symbol_value(syms, zkvm_host_symbol(f)) {
+    f :: rest => match zkvm_symbol_value(syms, f.symbol) {
       Some(v) => struct { addr = v, func = f } :: zkvm_bindings(syms, rest),
       None() => zkvm_bindings(syms, rest),
     },
@@ -118,7 +118,7 @@ function zkvm_install(profile, img, b) = {
   zkvm_reset();
   init_model("");
   zkvm_write_segments(b, img.elf.phdrs);
-  zkvm_host_table = zkvm_bindings(syms, zkvm_host_fns);
+  zkvm_host_table = zkvm_bindings(syms, zkvm_library);
   zkvm_main = match zkvm_symbol_value(syms, "main") { Some(v) => v, None() => zeros() };
   zkvm_gp = zkvm_symbol_value(syms, "__global_pointer$");
   zkvm_started = false

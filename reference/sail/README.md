@@ -29,15 +29,17 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | `before postlude`, so the built extensions' clauses match    |
 |                           |                                | first and the clause precedes `end currentlyEnabled` in      |
 |                           |                                | `postlude/insts_end.sail`                                    |
-| `zkvm_machine`            | `zkvm_host.sail`               | `zkvm_host_fn` (26 library functions, each with its C        |
-|                           |                                | prototype), `zkvm_host_fns`, `zkvm_host_symbol`,             |
-|                           |                                | `zkvm_host_is_accelerator`; loader-installed registers       |
+| `zkvm_machine`            | `zkvm_host.sail`               | `zkvm_library`: the static library, every function once      |
+|                           |                                | (symbol, `zkvm_host_kind`, whether it must be exported, its  |
+|                           |                                | C prototype); everything else about the library (bindings,   |
+|                           |                                | required and optional exports, the test stub library) is     |
+|                           |                                | derived from it. Loader-installed registers                  |
 |                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;   |
 |                           |                                | `zkvm_host_at(pc)`; checked byte access `zkvm_load_byte`,    |
 |                           |                                | `zkvm_store_byte`; the semantics of `_start`, `read_input`,  |
 |                           |                                | `write_output`, `memcpy`, `memmove`, `memset`, `memcmp`      |
-|                           |                                | (`zkvm_host_call`); an accelerator call halts with           |
-|                           |                                | `ZKVM_Unspecified`                                           |
+|                           |                                | (`zkvm_host_call`, by kind); an accelerator call halts with  |
+|                           |                                | `ZKVM_Unspecified(symbol)`                                   |
 | `zkvm_machine`            | `zkvm_loader.sail`             | the loader: ELF parsing from a byte vector (`zkvm_rd`,       |
 |                           |                                | program headers, the symbol table), `zkvm_validate` (the     |
 |                           |                                | checks of the ELF standard and the memory-profile checks,    |
