@@ -39,6 +39,9 @@ messages. It ends with `passed N, failed M` and exits non-zero on any failure. B
 | `accel`                             | x       | unspecified:zkvm_keccak256                                |
 
 Rejections (`zkvm-run` prints `REJECT <message>`, exit 2): `echo.elf` patched for bad magic,
-ELFCLASS32, wrong machine, wrong type, misaligned entry, `p_paddr ≠ p_vaddr`, W^X, overlapping
-segments, a segment outside the address space; the `rx` build of `echo` under the `x` profile; and
-`exit3.c` linked against a library with only `_start` (`missing symbol read_input`).
+ELFCLASS32, wrong machine, wrong type, misaligned entry, W^X, overlapping segments, a segment
+outside the address space; the `rx` build of `echo` under the `x` profile; and `exit3.c` linked
+against a library with only `_start` (`missing symbol read_input`).
+
+Accepted: `echo.elf` with `p_paddr ≠ p_vaddr` runs as `echo` does, because the image is placed at
+`p_vaddr` and the ELF standard does not check `p_paddr`.

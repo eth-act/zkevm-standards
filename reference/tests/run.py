@@ -163,6 +163,19 @@ def rejection(name, elf_bytes, message, profile="reference-x"):
     report(f"reject {name} -> {want}", ok, f"exit {r.returncode} printed {r.stdout.strip()!r}{r.stderr.strip()!r}")
 
 
+def accepted(name, elf_bytes, outcome, output, profile="reference-x"):
+    """A patched ELF the loader must accept, with its expected observation."""
+    workdir = BUILD / "accept" / name
+    shutil.rmtree(workdir, ignore_errors=True)
+    workdir.mkdir(parents=True)
+    elf = workdir / "guest.elf"
+    elf.write_bytes(elf_bytes)
+    (workdir / "input.bin").write_bytes(INPUT)
+    got_outcome, got_output, _ = run_lean(profile, elf, workdir)
+    report(f"accept {name} -> {outcome} {output!r}", (got_outcome, got_output) == (outcome, output),
+           f"got {got_outcome} {got_output!r}")
+
+
 def missing_symbol_elf():
     """exit3.c linked against a library that defines only `_start`."""
     workdir = BUILD / "reject" / "missing-symbol-build"
@@ -200,8 +213,9 @@ def main():
     rejection("etype", patched(put("<H", 16, 3)), "e_type is not ET_EXEC")
     rejection("entry", patched(lambda d, _: struct.pack_into(
         "<Q", d, 24, struct.unpack_from("<Q", d, 24)[0] + 2)), "e_entry not 4-byte aligned")
-    rejection("paddr", patched(phdr_field(0, 24, "<Q", lambda v: v + 0x1000)),
-              "segment 0x80000000: p_paddr differs from p_vaddr")
+    # The image is placed at p_vaddr; the ELF standard has no p_paddr check.
+    accepted("paddr", patched(phdr_field(0, 24, "<Q", lambda v: v + 0x1000)),
+             "success", b"len=10;mvkz olleh")
     rejection("wx", patched(phdr_field(0, 4, "<I", lambda v: 7)),
               "segment 0x80000000: W^X violated")
     rejection("rx-under-x", (BUILD / "reference-rx" / "echo.elf").read_bytes(),

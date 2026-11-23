@@ -118,7 +118,6 @@ def validate (p : MemoryProfile) (bytes : ByteArray) : Except String Image := do
     unless ph.filesz ≤ ph.memsz do throw s!"segment {h}: p_filesz > p_memsz"
     unless ph.offset.toNat + ph.filesz.toNat ≤ b.size do
       throw s!"segment {h}: file data outside the file"
-    unless ph.paddr == ph.vaddr do throw s!"segment {h}: p_paddr differs from p_vaddr"
     unless v % 4 == 0 do throw s!"segment {h}: p_vaddr not 4-byte aligned"
     unless p.address_space.contains v ph.memsz.toNat do
       throw s!"segment {h}: outside the addressable space"
