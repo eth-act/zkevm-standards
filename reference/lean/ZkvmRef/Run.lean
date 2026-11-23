@@ -9,8 +9,8 @@ open PreSail LeanRV64DExecutable.Functions
 namespace ZkvmRef
 
 /-- One machine step (`zkvm_step`): the host function bound to the PC if there is one, else one
-instruction; nothing once the run has halted. `.error` if the model is stuck, for example on a
-read of a register or memory byte that has no value. -/
+instruction. `.error` if the model is stuck, for example on a read of a register or memory byte
+that has no value, or on a step after the run has halted (a Sail assertion). -/
 def step (s : MState) : Except String MState :=
   (·.2) <$> runM (zkvm_step ()) s
 

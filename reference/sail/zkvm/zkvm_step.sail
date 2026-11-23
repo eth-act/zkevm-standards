@@ -26,12 +26,14 @@ function zkvm_instruction_step() -> unit = {
   if PC == zkvm_trap_vector then zkvm_halt_with(ZKVM_Fault())
 }
 
-// One step. A halted machine does not change.
-function zkvm_step() -> unit =
+// One step. The run must not have halted already.
+function zkvm_step() -> unit = {
   match zkvm_halt {
-    Some(_) => (),
-    None() => match zkvm_host_at(PC) {
-      Some(f) => zkvm_host_call(f),
-      None() => zkvm_instruction_step(),
-    },
+    None() => (),
+    Some(_) => assert(false, "zkvm_step: the run has already halted"),
+  };
+  match zkvm_host_at(PC) {
+    Some(f) => zkvm_host_call(f),
+    None() => zkvm_instruction_step(),
   }
+}

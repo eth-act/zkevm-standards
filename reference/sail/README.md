@@ -21,8 +21,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | `ZKVM_Unspecified(symbol)`); registers `zkvm_halt`,          |
 |                           |                                | `zkvm_output_rev` (public output, newest byte first),        |
 |                           |                                | `zkvm_input_size`, `zkvm_misaligned_accesses`; termination   |
-|                           |                                | `zkvm_halt_with` (first outcome wins), `zkvm_exit`,          |
-|                           |                                | `zkvm_host_fault`                                            |
+|                           |                                | `zkvm_halt_with` (asserts the run has not halted),           |
+|                           |                                | `zkvm_exit`, `zkvm_host_fault`                               |
 | `zkvm_extension_fallback` | `zkvm_extension_fallback.sail` | last clause of `currentlyEnabled`: extensions whose module   |
 |                           |                                | is not built are disabled (asserts the configuration does    |
 |                           |                                | not claim them). Ordered `after extensions, mops` and        |
@@ -51,10 +51,11 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | for the control registers sail-riscv reads before writing,   |
 |                           |                                | and the trap vector `zkvm_trap_vector`, address 0 in the     |
 |                           |                                | never-mapped null page)                                      |
-| `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: nothing once halted; else the host function     |
-|                           |                                | bound to the PC, or one instruction via sail-riscv's         |
-|                           |                                | `try_step`, counting a misaligned data access first and      |
-|                           |                                | halting with `ZKVM_Fault()` if the instruction trapped       |
+| `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: asserts the run has not halted; then the host   |
+|                           |                                | function bound to the PC, or one instruction via             |
+|                           |                                | sail-riscv's `try_step`, counting a misaligned data access   |
+|                           |                                | first and halting with `ZKVM_Fault()` if the instruction     |
+|                           |                                | trapped                                                      |
 
 `zkvm_load_byte`/`zkvm_store_byte` go through sail-riscv's `vmem_read_addr`/`vmem_write_addr`, so
 host functions access memory with the same permission checks as guest loads and stores.

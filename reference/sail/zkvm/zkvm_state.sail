@@ -55,7 +55,7 @@ union zkvm_outcome = {
   ZKVM_Unspecified : string,    // the guest called this accelerator, whose semantics are not given
 }
 
-// Set once the run has halted; zkvm_step does nothing afterwards.
+// Set once the run has halted; halting again or stepping afterwards is an assertion failure.
 register zkvm_halt : option(zkvm_outcome) = None()
 
 // Public output, most recent byte first.
