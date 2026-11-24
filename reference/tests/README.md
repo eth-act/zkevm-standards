@@ -49,3 +49,4 @@ Summary of the current guests:
 | `output_then_fail`                  | x       | failure:5, output `partial`                                  |
 | `ebreak`, `illegal`, `ecall`, `csr` | x       | fault (trap)                                                 |
 | `input_write`                       | x       | fault (input region is read-only)                            |
+| `misaligned_jump`                   | x       | fault (misaligned jump target)                               |

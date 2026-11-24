@@ -5,7 +5,9 @@
 // (standards/standard-termination-semantics: every trap is abnormal termination).
 function zkvm_instruction_step() -> unit = {
   let _ : bool = try_step(0, true);
-  // [TER4]
+  // [TER4][IAM1][IAM2][IAM3] an instruction-address-misaligned exception (a jump to a target
+  // that is not 4-byte aligned: no C extension, IALIGN=32) is a trap like any other, raised by
+  // sail-riscv whether or not Zicclsm is supported, and ends the run here; nothing resumes it.
   if PC == zkvm_trap_vector then zkvm_halt_with(ZKVM_Fault())
 }
 
