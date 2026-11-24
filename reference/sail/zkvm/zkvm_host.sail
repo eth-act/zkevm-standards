@@ -1,4 +1,5 @@
-// Host functions: the functions of the zkVM static library (standards/c-interface-accelerators,
+// Host functions: the functions of the zkVM static library
+// (standards/accelerated-memory-operations, standards/c-interface-accelerators,
 // standards/static-library-and-linker-script): which functions exist, their symbols, when they
 // are invoked, and what each does. Accelerator semantics are not given: calling one halts the
 // run with ZKVM_Unspecified.
@@ -6,6 +7,10 @@
 // What the machine does when a library function is called.
 enum zkvm_host_kind = {
   ZKVM_START,
+  ZKVM_MEMCPY,
+  ZKVM_MEMMOVE,
+  ZKVM_MEMSET,
+  ZKVM_MEMCMP,
   ZKVM_ACCELERATOR,  // semantics not specified
 }
 
@@ -22,6 +27,15 @@ struct zkvm_library_fn = {
 let zkvm_library : list(zkvm_library_fn) = [|
   // entry point; calls main and passes its return value to the termination mechanism
   struct { symbol = "_start", kind = ZKVM_START, required = true },
+  // [MEM1] the accelerated memory operations, optional (standards/accelerated-memory-operations)
+  // void *memcpy(void *dest, const void *src, size_t n)
+  struct { symbol = "memcpy", kind = ZKVM_MEMCPY, required = false },
+  // void *memmove(void *dest, const void *src, size_t n)
+  struct { symbol = "memmove", kind = ZKVM_MEMMOVE, required = false },
+  // void *memset(void *dest, int c, size_t n)
+  struct { symbol = "memset", kind = ZKVM_MEMSET, required = false },
+  // int   memcmp(const void *lhs, const void *rhs, size_t n)
+  struct { symbol = "memcmp", kind = ZKVM_MEMCMP, required = false },
   // [ACC1] every function of zkvm_accelerators.h (standards/c-interface-accelerators)
   // zkvm_status zkvm_keccak256(const uint8_t* data, size_t len, zkvm_keccak256_hash* output);
   struct { symbol = "zkvm_keccak256", kind = ZKVM_ACCELERATOR, required = true },
@@ -99,6 +113,20 @@ function zkvm_host_lookup(table, pc) =
 // host function instead of fetching.
 function zkvm_host_at(pc : xlenbits) -> option(zkvm_library_fn) = zkvm_host_lookup(zkvm_host_table, pc)
 
+// Checked byte access for host functions: a data load or store with the guest's
+// permissions; None()/false when the access would trap.
+function zkvm_load_byte(addr : xlenbits) -> option(bits(8)) =
+  match vmem_read_addr(Virtaddr(addr), 1, Load(Data), false, false, false) {
+    Ok(b) => Some(b),
+    Err(_) => None(),
+  }
+
+function zkvm_store_byte(addr : xlenbits, b : bits(8)) -> bool =
+  match vmem_write_addr(Virtaddr(addr), 1, b, Store(Data), false, false, false) {
+    Ok(_) => true,
+    Err(_) => false,
+  }
+
 // ---------------------------------------------------------------------------------------------
 // Semantics of the host functions.
 //
@@ -107,6 +135,27 @@ function zkvm_host_at(pc : xlenbits) -> option(zkvm_library_fn) = zkvm_host_look
 // https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L9-L27
 // Integer calling convention:
 // https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/56561cb3e7330fe99a98fd27457229707b2786ae/riscv-cc.adoc?plain=1#L176-L180
+//
+// Address arithmetic wraps at 64 bits and sizes are full 64-bit register values. Memory is
+// accessed byte by byte with the guest's permissions; the first failing access ends the run
+// with a fault and the function does not return.
+
+// Continue at the return address.
+function zkvm_ret() -> unit = {
+  set_next_pc(rX(Regno(1)));
+  tick_pc()
+}
+
+// [MEM3]
+// The `n` bytes at `a` are all readable.
+function zkvm_readable(a : xlenbits, n : int) -> bool = {
+  var p = a;
+  foreach (i from 1 to n) {
+    match zkvm_load_byte(p) { Some(_) => (), None() => return false };
+    p = p + 1
+  };
+  true
+}
 
 // _start: the first time, set sp to the top of the stack region, gp to __global_pointer$ (if
 // defined) and ra to _start itself, and call main. Reaching _start again is main returning: the
@@ -122,10 +171,90 @@ function zkvm_start() -> unit =
     tick_pc()
   }
 
+// [MEM3][MEM4]
+// memcpy(dest, src, n): for each i < n in increasing order, copy byte src + i to dest + i.
+// Returns dest (a0 unchanged).
+function zkvm_memcpy() -> unit = {
+  let dest = rX(Regno(10));
+  let src = rX(Regno(11));
+  foreach (i from 0 to unsigned(rX(Regno(12))) - 1) {
+    match zkvm_load_byte(src + i) {
+      None() => { zkvm_host_fault(); return () },
+      Some(b) => if not(zkvm_store_byte(dest + i, b)) then { zkvm_host_fault(); return () },
+    }
+  };
+  zkvm_ret()
+}
+
+// [MEM3][MEM5]
+// memmove(dest, src, n): as if all n source bytes were first copied to a temporary buffer, so the
+// regions may overlap. Faults before storing anything if a source byte is unreadable; otherwise
+// copies in the direction that reads each source byte before it is overwritten. Returns dest.
+function zkvm_memmove() -> unit = {
+  let dest = rX(Regno(10));
+  let src = rX(Regno(11));
+  let n = unsigned(rX(Regno(12)));
+  if not(zkvm_readable(src, n)) then { zkvm_host_fault(); return () };
+  // Byte src + i is overwritten by an earlier forward store exactly when 0 < dest - src < n.
+  let d = unsigned(dest - src);
+  if d == 0 | d >= n then {
+    foreach (i from 0 to n - 1) {
+      match zkvm_load_byte(src + i) {
+        None() => { zkvm_host_fault(); return () },
+        Some(b) => if not(zkvm_store_byte(dest + i, b)) then { zkvm_host_fault(); return () },
+      }
+    }
+  } else {
+    foreach (i from n - 1 downto 0) {
+      match zkvm_load_byte(src + i) {
+        None() => { zkvm_host_fault(); return () },
+        Some(b) => if not(zkvm_store_byte(dest + i, b)) then { zkvm_host_fault(); return () },
+      }
+    }
+  };
+  zkvm_ret()
+}
+
+// [MEM3][MEM6]
+// memset(dest, c, n): store c & 0xff at dest + i for each i < n. Returns dest.
+function zkvm_memset() -> unit = {
+  let dest = rX(Regno(10));
+  let c = rX(Regno(11))[7 .. 0];
+  foreach (i from 0 to unsigned(rX(Regno(12))) - 1) {
+    if not(zkvm_store_byte(dest + i, c)) then { zkvm_host_fault(); return () }
+  };
+  zkvm_ret()
+}
+
+// [MEM3][MEM7]
+// memcmp(lhs, rhs, n): compare unsigned bytes in increasing order up to the first difference;
+// a0 := -1, 1 or 0.
+function zkvm_memcmp() -> unit = {
+  let lhs = rX(Regno(10));
+  let rhs = rX(Regno(11));
+  foreach (i from 0 to unsigned(rX(Regno(12))) - 1) {
+    match (zkvm_load_byte(lhs + i), zkvm_load_byte(rhs + i)) {
+      (Some(x), Some(y)) =>
+        if x != y then {
+          wX(Regno(10), if unsigned(x) < unsigned(y) then ones() else zero_extend(0b1));
+          zkvm_ret();
+          return ()
+        },
+      _ => { zkvm_host_fault(); return () },
+    }
+  };
+  wX(Regno(10), zeros());
+  zkvm_ret()
+}
+
 // Perform library function `f`.
 function zkvm_host_call(f : zkvm_library_fn) -> unit =
   match f.kind {
     ZKVM_START        => zkvm_start(),
+    ZKVM_MEMCPY       => zkvm_memcpy(),
+    ZKVM_MEMMOVE      => zkvm_memmove(),
+    ZKVM_MEMSET       => zkvm_memset(),
+    ZKVM_MEMCMP       => zkvm_memcmp(),
     // [ACC1] an accelerator call halts the run: its semantics are not given
     ZKVM_ACCELERATOR  => zkvm_halt_with(ZKVM_Unspecified(f.symbol)),
   }

@@ -68,3 +68,6 @@ function zkvm_halt_with(o : zkvm_outcome) -> unit =
 // main returned `code` to _start: 0 is success, anything else failure with that error code.
 function zkvm_exit(code : bits(32)) -> unit =
   zkvm_halt_with(if code == zeros() then ZKVM_Success() else ZKVM_Failure(code))
+
+// A host function hit an inaccessible byte.
+function zkvm_host_fault() -> unit = zkvm_halt_with(ZKVM_Fault())

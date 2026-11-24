@@ -20,6 +20,11 @@ decodes input files, runs the step, and holds the statements and the executable.
 | `ZkvmRef/Run.lean`           | `step` (Sail's `zkvm_step`), `runFinal`, `run`, `Outcome`    |
 |                              | (including `leanOutOfFuel`, which is not a standard          |
 |                              | outcome), `Observation`, `Terminal`                          |
+| `ZkvmRef/StaticLibrary.lean` | vocabulary for library statements: `stepN`, `CallReturns`,   |
+|                              | psABI callee-saved registers, `Readable`/`Writable`,         |
+|                              | `AtEntry`, `native`                                          |
+| `ZkvmRef/Compliance.lean`    | compliance statements: for vendor static libraries           |
+|                              | `ImplementsHost`                                             |
 | `Main/Run.lean`              | executable `zkvm-run` (arguments: optional `--canary`,       |
 |                              | PROFILE, ELF, INPUT, optional FUEL): validates, boots and    |
 |                              | runs one guest, then prints one line `outcome=<…>`           |

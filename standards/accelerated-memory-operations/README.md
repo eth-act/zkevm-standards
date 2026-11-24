@@ -91,3 +91,21 @@ Observability is recommended, not required — a vendor is under no obligation t
 * **Symbol contract, not a new API.** Adding these to a header would duplicate `<string.h>` and capture only *explicit* calls, missing the bulk of compiler-generated copies. Standardizing the symbol captures both, with zero guest source changes.
 * **Semantics are mandatory.** Acceleration may be swapped in transparently, so portability depends on the replacement being bit-identical to the naive routine for every input and alignment.
 * **Linking must be specified.** The [Static Library and Linker Script](../static-library-and-linker-script/README.md) standard ensures the symbol *can* be provided, but the weak-symbol archive-extraction behavior means a correctly-defined accelerator can still be silently dropped. Pinning down the link mechanism is what makes acceleration reliable and the standard testable.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| MEM1 | When provided, `memcpy`, `memmove`, `memset` and `memcmp` are exported from the vendor static library under their standard, unmangled C names. | vendor library | Sail, monitor |
+| MEM2 | If the vendor library does not export them, the guest falls back to the toolchain's default implementations; the build must still link successfully. | vendor library | monitor |
+| MEM3 | Whether or not an operation is accelerated, the implementation must be behaviorally identical to the canonical C library function for every input, including all alignments and `n == 0`. | vendor library | Sail, Lean, monitor |
+| MEM4 | `memcpy` copies `n` bytes from `src` to `dest` and returns `dest`; behavior is undefined if the regions overlap. | vendor library | Sail, monitor |
+| MEM5 | `memmove` copies `n` bytes from `src` to `dest` as if through a temporary buffer, must be correct for overlapping regions in both directions, and returns `dest`. | vendor library | Sail, monitor |
+| MEM6 | `memset` fills `n` bytes of `dest` with the byte `(unsigned char)c` and returns `dest`. | vendor library | Sail, monitor |
+| MEM7 | `memcmp` compares the first `n` bytes as `unsigned char` and returns a value less than, equal to, or greater than zero, stopping at the first differing byte; the sign must follow the C standard. | vendor library | Sail, monitor |
+| MEM8 | An implementation must not assume any particular alignment of `dest`, `src`, or `n`. | vendor library | monitor |
+| MEM9 | A conforming zkVM that exports these symbols must guarantee they win symbol resolution in the guest's final link, by an always-linked runtime or whole-archive inclusion, and must document which it relies on. | vendor library | monitor |
+| MEM10 | Relying on link order alone is not conforming. | vendor library | monitor |
+| MEM11 | Under whole-program optimization, when a call to the symbol survives optimization, it must resolve to a conforming implementation. | vendor library | not tested: needs an LTO build (#64) |
