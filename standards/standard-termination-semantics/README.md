@@ -73,3 +73,23 @@ Language runtimes and standard libraries must map abnormal termination mechanism
   * Runtime fatal errors
 
 This mapping must preserve failure semantics and ensure zkVM-level termination is triggered.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| TER1 | Successful termination: the zkVM execution must halt. | zkVM | Sail, monitor |
+| TER2 | Successful termination: the zkVM must report successful completion to the host environment. | zkVM | Sail, monitor |
+| TER3 | Successful termination: the execution trace must be considered complete and valid. | zkVM | monitor (proofs of successful runs verify in full mode) |
+| TER4 | Failed termination: the zkVM execution must halt. | zkVM | Sail, monitor |
+| TER5 | Failed termination: the zkVM must report execution failure with the provided error code to the host environment. | zkVM | Sail, monitor |
+| TER6 | The verifier must implement one of the following APIs: Type 1 or Type 2. | verifier | Lean, monitor |
+| TER7 | Type 1: if an execution failed, then any proof claiming to attest to that execution must fail verification, regardless of whether it was produced by an honest or a malicious prover; failed termination must not be treated as a successful computation by the verifier. | verifier | Lean, monitor |
+| TER8 | Type 2: verification accepts an expected exit code and can succeed only if the proof represents an execution that terminated with that exact exit code. | verifier | Lean, not tested: no harness exposes Type 2 verify (eth-act/zkevm-test-monitor#73) |
+| TER9 | The soundness guarantee must hold against any proof anyone presents; it is enforced by the circuit and is not satisfied by relying on the prover to refuse to produce a proof for a failed execution. | zkVM | Lean, not tested: needs fault injection or forged proofs (eth-act/zkevm-test-monitor#74) |
+| TER10 | A return value of `0` from the entry point must be treated as successful termination. | zkVM, vendor library | Sail, monitor |
+| TER11 | A non-zero return value must be treated as abnormal termination, with the return value used as the error code; the range of error codes a zkVM preserves is vendor-defined. | zkVM, vendor library | Sail, Lean, monitor |
+| TER12 | `_start` is responsible for mapping the return value of `main` to the appropriate zkVM termination mechanism. | vendor library | Sail, monitor |
+| TER13 | Language runtimes and standard libraries must map abnormal termination mechanisms to this standardized interface; the mapping must preserve failure semantics and ensure zkVM-level termination is triggered. | guest | not tested: guest runtime obligation (Rust panic guest: eth-act/zkevm-test-monitor#75) |

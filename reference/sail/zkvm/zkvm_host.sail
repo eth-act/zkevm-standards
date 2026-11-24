@@ -173,6 +173,7 @@ function zkvm_readable(a : xlenbits, n : int) -> bool = {
   true
 }
 
+// [TER12]
 // _start: the first time, set sp to the top of the stack region, gp to __global_pointer$ (if
 // defined) and ra to _start itself, and call main. Reaching _start again is main returning: the
 // run halts with exit code (uint32_t)a0.
