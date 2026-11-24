@@ -35,11 +35,15 @@ format, which `run.py` reads:
 
 Summary of the current guests:
 
-| Guest    | Profile | Expected                                                     |
-| -------- | ------- | ------------------------------------------------------------ |
-| `exit3`  | x       | failure:3                                                    |
-| `bss`    | x       | success (bss is zeroed)                                      |
-| `accel`  | x       | unspecified:zkvm_keccak256                                   |
-| `memops` | x       | success: checks the results of                               |
-|          |         | `memcpy`/`memmove`/`memset`/`memcmp` itself (`failure:<i+1>` |
-|          |         | at the first wrong byte `i`)                                 |
+| Guest              | Profile | Expected                                                     |
+| ------------------ | ------- | ------------------------------------------------------------ |
+| `exit3`            | x       | failure:3                                                    |
+| `bss`              | x       | success (bss is zeroed)                                      |
+| `accel`            | x       | unspecified:zkvm_keccak256                                   |
+| `memops`           | x       | success: checks the results of                               |
+|                    |         | `memcpy`/`memmove`/`memset`/`memcmp` itself (`failure:<i+1>` |
+|                    |         | at the first wrong byte `i`)                                 |
+| `echo`             | x, rx   | success, output `len=10;mvkz olleh` (reads input, two        |
+|                    |         | `write_output` calls)                                        |
+| `output_null`      | x       | fault (`write_output` from an unmapped address)              |
+| `output_then_fail` | x       | failure:5, output `partial`                                  |

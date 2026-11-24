@@ -47,6 +47,9 @@ def main (args : List String) : IO UInt32 := do
       IO.println s!"REJECT {m}"
       return (2 : UInt32)
     match boot p elf input gprs with
+    | .error "input larger than the input region" =>
+      IO.println "REJECT input larger than the input region"
+      return (2 : UInt32)
     | .error m =>
       IO.eprintln s!"error: {m}"
       return (1 : UInt32)

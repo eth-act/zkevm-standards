@@ -35,9 +35,10 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | derived from it. Loader-installed registers                 |
 |                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;  |
 |                           |                                | `zkvm_host_at(pc)`; checked byte access `zkvm_load_byte`,   |
-|                           |                                | `zkvm_store_byte`; the semantics of `_start`, `memcpy`,     |
-|                           |                                | `memmove`, `memset`, `memcmp` (`zkvm_host_call`, by kind);  |
-|                           |                                | an accelerator call halts with `ZKVM_Unspecified(symbol)`   |
+|                           |                                | `zkvm_store_byte`; the semantics of `_start`, `read_input`, |
+|                           |                                | `write_output`, `memcpy`, `memmove`, `memset`, `memcmp`     |
+|                           |                                | (`zkvm_host_call`, by kind); an accelerator call halts with |
+|                           |                                | `ZKVM_Unspecified(symbol)`                                  |
 | `zkvm_machine`            | `zkvm_loader.sail`             | the loader: ELF parsing from a byte vector (`zkvm_rd`,      |
 |                           |                                | program headers, the symbol table), `zkvm_validate` (the    |
 |                           |                                | program-header bounds check, first failure reported as a    |
@@ -45,8 +46,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | `zkvm_regions_of`)                                          |
 | `zkvm_machine`            | `zkvm_install.sail`            | machine initialisation: `zkvm_install` (profile, memory map |
 |                           |                                | with its PMA attributes, PC, reset, segment bytes, host     |
-|                           |                                | bindings), `zkvm_reset` (zkVM values for the control        |
-|                           |                                | registers sail-riscv reads before writing)                  |
+|                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values  |
+|                           |                                | for the control registers sail-riscv reads before writing)  |
 | `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: asserts the run has not halted; then the host  |
 |                           |                                | function bound to the PC, or one instruction via            |
 |                           |                                | sail-riscv's `try_step`                                     |

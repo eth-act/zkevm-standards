@@ -1,5 +1,5 @@
-// Host functions: the functions of the zkVM static library
-// (standards/accelerated-memory-operations, standards/c-interface-accelerators,
+// Host functions: the functions of the zkVM static library (standards/io-interface,
+// standards/accelerated-memory-operations, standards/c-interface-accelerators,
 // standards/static-library-and-linker-script): which functions exist, their symbols, when they
 // are invoked, and what each does. Accelerator semantics are not given: calling one halts the
 // run with ZKVM_Unspecified.
@@ -7,6 +7,8 @@
 // What the machine does when a library function is called.
 enum zkvm_host_kind = {
   ZKVM_START,
+  ZKVM_READ_INPUT,
+  ZKVM_WRITE_OUTPUT,
   ZKVM_MEMCPY,
   ZKVM_MEMMOVE,
   ZKVM_MEMSET,
@@ -27,6 +29,11 @@ struct zkvm_library_fn = {
 let zkvm_library : list(zkvm_library_fn) = [|
   // entry point; calls main and passes its return value to the termination mechanism
   struct { symbol = "_start", kind = ZKVM_START, required = true },
+  // [IO1] the I/O interface (standards/io-interface)
+  // void read_input(const uint8_t** buf_ptr, size_t* buf_size);
+  struct { symbol = "read_input", kind = ZKVM_READ_INPUT, required = true },
+  // void write_output(const uint8_t* output, size_t size);
+  struct { symbol = "write_output", kind = ZKVM_WRITE_OUTPUT, required = true },
   // [MEM1] the accelerated memory operations, optional (standards/accelerated-memory-operations)
   // void *memcpy(void *dest, const void *src, size_t n)
   struct { symbol = "memcpy", kind = ZKVM_MEMCPY, required = false },
@@ -146,6 +153,15 @@ function zkvm_ret() -> unit = {
   tick_pc()
 }
 
+// Store `v` little-endian at `a` (a pointer or size_t is xlen bits); false at the first failing
+// store.
+function zkvm_store_xlen(a : xlenbits, v : xlenbits) -> bool = {
+  foreach (i from 0 to xlen_bytes - 1) {
+    if not(zkvm_store_byte(a + i, v[8 * i + 7 .. 8 * i])) then return false
+  };
+  true
+}
+
 // [MEM3]
 // The `n` bytes at `a` are all readable.
 function zkvm_readable(a : xlenbits, n : int) -> bool = {
@@ -170,6 +186,28 @@ function zkvm_start() -> unit =
     set_next_pc(zkvm_main);
     tick_pc()
   }
+
+// [IO2][IO3][IO5]
+// read_input(buf_ptr, buf_size): *buf_ptr := input address, *buf_size := input size.
+function zkvm_read_input() -> unit =
+  if not(zkvm_store_xlen(rX(Regno(10)), zkvm_profile.input.base)) then zkvm_host_fault()
+  else if not(zkvm_store_xlen(rX(Regno(11)), zkvm_input_size)) then zkvm_host_fault()
+  else zkvm_ret()
+
+// [IO8][IO9][IO11]
+// write_output(output, size): append the `size` bytes at `output` to the public output; if any
+// of them is unreadable, fault without appending anything.
+function zkvm_write_output() -> unit = {
+  let a = rX(Regno(10));
+  let n = unsigned(rX(Regno(11)));
+  if not(zkvm_readable(a, n)) then { zkvm_host_fault(); return () };
+  var p = a;
+  foreach (i from 1 to n) {
+    match zkvm_load_byte(p) { Some(b) => zkvm_output_rev = b :: zkvm_output_rev, None() => () };
+    p = p + 1
+  };
+  zkvm_ret()
+}
 
 // [MEM3][MEM4]
 // memcpy(dest, src, n): for each i < n in increasing order, copy byte src + i to dest + i.
@@ -251,6 +289,8 @@ function zkvm_memcmp() -> unit = {
 function zkvm_host_call(f : zkvm_library_fn) -> unit =
   match f.kind {
     ZKVM_START        => zkvm_start(),
+    ZKVM_READ_INPUT   => zkvm_read_input(),
+    ZKVM_WRITE_OUTPUT => zkvm_write_output(),
     ZKVM_MEMCPY       => zkvm_memcpy(),
     ZKVM_MEMMOVE      => zkvm_memmove(),
     ZKVM_MEMSET       => zkvm_memset(),

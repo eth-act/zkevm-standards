@@ -15,8 +15,8 @@ decodes input files, runs the step, and holds the statements and the executable.
 |                              | `output`, `misalignedCount`, `hostTable`, `pmaRegions`, …),  |
 |                              | `InRange`                                                    |
 | `ZkvmRef/Loader.lean`        | passes file bytes to the Sail loader: `validate` (Sail's     |
-|                              | `zkvm_validate`), `install` (Sail's `zkvm_install`), `load`, |
-|                              | `boot`                                                       |
+|                              | `zkvm_validate`), `install` and `provideInput` (Sail's       |
+|                              | `zkvm_install` and `zkvm_provide_input`), `load`, `boot`     |
 | `ZkvmRef/Run.lean`           | `step` (Sail's `zkvm_step`), `runFinal`, `run`, `Outcome`    |
 |                              | (including `leanOutOfFuel`, which is not a standard          |
 |                              | outcome), `Observation`, `Terminal`                          |
@@ -36,7 +36,8 @@ Statements are definitions of type `Prop`; nothing is proved and there are no ax
 `zkvm-run [--canary] PROFILE ELF INPUT [FUEL]` (default fuel 50000000 steps) validates and boots the
 ELF, runs it and prints
 `outcome=<success|failure:N|fault|unspecified:NAME|lean_out_of_fuel|stuck:MSG> output=<hex> misaligned=<N>`
-(exit 0), or `REJECT <message>` (exit 2) when the loader rejects the ELF; other errors exit 1.
-Integer registers `x1`…`x31` start at 0, or at a distinct nonzero pattern with `--canary`.
+(exit 0), or `REJECT <message>` (exit 2) when the loader rejects the ELF or the input does not fit
+the input region; other errors exit 1. Integer registers `x1`…`x31` start at 0, or at a distinct
+nonzero pattern with `--canary`.
 
 Build with `../scripts/build-lean.sh`, or `lake build` here once the model is generated.

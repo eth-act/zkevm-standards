@@ -1,4 +1,5 @@
-// Machine initialisation: puts a validated image (zkvm_loader.sail) into machine state.
+// Machine initialisation: puts a validated image (zkvm_loader.sail) and the private input into
+// machine state.
 
 // The memory attributes of a region. Only read-write regions are main memory. Misaligned loads
 // and stores never fault (Zicclsm).
@@ -116,4 +117,16 @@ function zkvm_install(profile, img, b) = {
   zkvm_main = match zkvm_symbol_value(syms, "main") { Some(v) => v, None() => zeros() };
   zkvm_gp = zkvm_symbol_value(syms, "__global_pointer$");
   zkvm_started = false
+}
+
+// [IO6][IO7]
+// Place the private input at the start of the profile's input region and record its size for
+// read_input; false if it does not fit.
+val zkvm_provide_input : forall 'len, 'len >= 0. vector('len, bits(8)) -> bool
+function zkvm_provide_input(input) = {
+  let n = length(input);
+  if n > unsigned(zkvm_profile.input.size) then return false;
+  zkvm_write_bytes(zkvm_profile.input.base, input, 0, n);
+  zkvm_input_size = to_bits_truncate(n);
+  true
 }

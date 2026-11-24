@@ -56,7 +56,7 @@ community.
 flowchart LR
   L[load: validate ELF, install segments and memory map, bind library symbols, place input] --> S[PC = e_entry = _start]
   S -->|host function _start: set sp, gp, ra| M[main runs as RV64IM]
-  M -->|PC reaches a bound symbol| H[host function: mem*]
+  M -->|PC reaches a bound symbol| H[host function: read_input, write_output, mem*]
   H -->|return to ra| M
   M -->|returns to _start| E[halt: exit code a0]
   M -->|faulting host access| F[halt: fault]
