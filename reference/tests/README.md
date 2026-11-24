@@ -13,8 +13,10 @@ initial registers unspecified), checks the loader's rejection messages, and chec
   segments stay decodable) per symbol that `zkvm-run --list-symbols` prints (Sail's `zkvm_library`).
   Never executed: the machine performs the host function when the PC reaches the symbol.
 - `stublib/link.ld.in`: text at the start of RAM, then rodata and data/bss segments, each
-  page-aligned; defines `_heap_start`, `_heap_end` and `__global_pointer$`. `run.py` fills
-  `@TEXT_FLAGS@` (1 for `x`, 5 for `rx`), `@RAM_BASE@` and `@RAM_END@` from the profile.
+  page-aligned; defines `_heap_start`, `_heap_end`, `_stack_bottom`, `_stack_top` (the profile's
+  stack region, so the script describes the stack as the memory-layout standard requires) and
+  `__global_pointer$`. `run.py` fills `@TEXT_FLAGS@` (1 for `x`, 5 for `rx`), `@RAM_BASE@`,
+  `@RAM_END@`, `@STACK_BASE@` and `@STACK_END@` from the profile.
 
 ## Guests (`guests/`)
 
@@ -57,7 +59,8 @@ Summary of the current guests:
 
 Rejections (`zkvm-run` prints `REJECT <message>`, exit 2): `echo.elf` patched for bad magic,
 ELFCLASS32, wrong machine, wrong type, misaligned entry, W^X, overlapping segments, a segment
-outside the address space; and the `rx` build of `echo` under the `x` profile.
+outside the address space, a segment in the input region (outside the profile's `memory`); and the
+`rx` build of `echo` under the `x` profile.
 
 Accepted: `echo.elf` with `p_paddr ≠ p_vaddr` runs as `echo` does, because the image is placed at
 `p_vaddr` and the ELF standard does not check `p_paddr`.

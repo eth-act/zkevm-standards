@@ -273,6 +273,7 @@ function zkvm_paint(ps : list(zkvm_pages), base : int, size : int, perm : zkvm_p
     struct { first = first, last = last, perm = perm, painter = painter } :: zkvm_unpaint(ps, first, last)
   }
 
+// [LAY1]
 // Paint every range of `rs` read-write: the regions where segments may be placed.
 val zkvm_paint_all : (list(zkvm_pages), list(zkvm_range)) -> list(zkvm_pages)
 function zkvm_paint_all(ps, rs) =
@@ -280,6 +281,14 @@ function zkvm_paint_all(ps, rs) =
     [||] => ps,
     r :: rest =>
       zkvm_paint_all(zkvm_paint(ps, unsigned(r.base), unsigned(r.size), ZKVM_PERM_RW, ZKVM_PAINT_RAM), rest),
+  }
+
+// The run containing page `pg`, if any.
+val zkvm_page_at : (list(zkvm_pages), int) -> option(zkvm_pages)
+function zkvm_page_at(ps, pg) =
+  match ps {
+    [||] => None(),
+    p :: rest => if p.first <= pg & pg <= p.last then Some(p) else zkvm_page_at(rest, pg),
   }
 
 // Insert a run into a list sorted by first page.
@@ -437,13 +446,34 @@ function zkvm_exec_undecodable(b, phs) =
     },
   }
 
-// Paint each non-empty segment's pages with its permission.
-val zkvm_paint_segments : (list(zkvm_pages), list(zkvm_phdr)) -> list(zkvm_pages)
+// [LAY1] segments must lie in the profile's memory regions
+// Paint each non-empty segment's pages over memory pages, checking each page in increasing order:
+// it must be memory or already hold a segment with the same permission.
+val zkvm_paint_segments : (list(zkvm_pages), list(zkvm_phdr)) -> result(list(zkvm_pages), string)
 function zkvm_paint_segments(ps, phs) =
   match phs {
-    [||] => ps,
-    ph :: rest =>
-      zkvm_paint_segments(zkvm_paint(ps, ph.vaddr, ph.memsz, zkvm_seg_perm(ph.flags), ZKVM_PAINT_SEGMENT), rest),
+    [||] => Ok(ps),
+    ph :: rest => if ph.memsz == 0 then zkvm_paint_segments(ps, rest) else {
+      let perm = zkvm_seg_perm(ph.flags);
+      let first = ediv_int(ph.vaddr, zkvm_page);
+      let last = ediv_int(ph.vaddr + ph.memsz - 1, zkvm_page);
+      foreach (pg from first to last) {
+        let ok : bool = match zkvm_page_at(ps, pg) {
+          Some(q) => q.painter == ZKVM_PAINT_RAM | (q.painter == ZKVM_PAINT_SEGMENT & q.perm == perm),
+          None() => false,
+        };
+        if not(ok) then {
+          let shared : bool = match zkvm_page_at(ps, pg) {
+            Some(q) => q.painter == ZKVM_PAINT_SEGMENT,
+            None() => false,
+          };
+          let at = hex_str(pg * zkvm_page);
+          if shared then return Err("page " ^ at ^ " shared by segments with different permissions")
+          else return Err("segment page " ^ at ^ " outside memory")
+        }
+      };
+      zkvm_paint_segments(zkvm_paint(ps, ph.vaddr, ph.memsz, perm, ZKVM_PAINT_SEGMENT), rest)
+    },
   }
 
 // Validate an ELF against the memory profile and compute its memory map. The checks run in a
@@ -492,6 +522,9 @@ function zkvm_validate(p, b) = {
   ps = zkvm_paint(ps, unsigned(p.input.base), unsigned(p.input.size), ZKVM_PERM_R, ZKVM_PAINT_INPUT);
   ps = zkvm_paint_all(ps, p.memory);
   ps = zkvm_paint(ps, unsigned(p.stack.base), unsigned(p.stack.size), ZKVM_PERM_RW, ZKVM_PAINT_STACK);
-  ps = zkvm_paint_segments(ps, loads);
+  match zkvm_paint_segments(ps, loads) {
+    Ok(ps') => ps = ps',
+    Err(m) => return Err(m),
+  };
   Ok(struct { elf = elf, regions = zkvm_regions_of(zkvm_sort_pages(ps)) })
 }

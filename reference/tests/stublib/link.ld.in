@@ -11,5 +11,6 @@ SECTIONS {
   .bss : { *(.sbss .sbss.* .bss .bss.* COMMON) } :data
   . = ALIGN(4096);
   _heap_start = .; _heap_end = @RAM_END@;
+  _stack_bottom = @STACK_BASE@; _stack_top = @STACK_END@;
   /DISCARD/ : { *(.comment) *(.riscv.attributes) *(.note*) }
 }
