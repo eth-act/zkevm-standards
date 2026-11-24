@@ -37,3 +37,14 @@ A misaligned instruction address is not a recoverable or expected condition in a
 
 Verification behavior follows directly from the execution termination semantics standard. For a Type 1 verifier, verification fails for any proof of an execution that terminated due to an instruction-address-misaligned exception. For a Type 2 verifier, the exception may translate to a non-zero exit code, and verification can succeed only if the verifier explicitly accepts that exit code.
 
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| IAM1 | When the underlying ISA would raise an instruction-address-misaligned exception, the zkVM must trigger abnormal termination as defined by the execution termination semantics standard. | zkVM | Sail, monitor |
+| IAM2 | No recovery or continuation strategy, including rounding the target address down to the nearest aligned address, is permitted. | zkVM | Sail, monitor |
+| IAM3 | A zkVM implementing `Zicclsm` must still apply this standard when an instruction-address-misaligned exception would be raised. | zkVM | Sail, monitor |
+| IAM4 | For a Type 1 verifier, verification fails for any proof of an execution that terminated due to an instruction-address-misaligned exception. | verifier | Lean, monitor |
+| IAM5 | For a Type 2 verifier, the exception may translate to a non-zero exit code, and verification can succeed only if the verifier explicitly accepts that exit code. | verifier | Lean, not tested: no harness exposes Type 2 verify (eth-act/zkevm-test-monitor#73) |

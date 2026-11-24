@@ -68,14 +68,14 @@ def ExecutionConforms (z : ZkVM) (p : MemoryProfile) : Prop :=
 
 /-- Type 1 soundness: an accepted proof of output `out` implies some input makes the
 reference succeed with output `out`. Quantifies over every proof `π`, not only the honest
-prover's. [TER7][TER9] -/
+prover's. [TER7][TER9][IAM4] -/
 def Type1Sound (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog out π, z.setup elf = some prog → z.verify1 prog out π = true →
     ∃ input, Halts p elf input ⟨.success, out⟩
 
 /-- Type 2 soundness: an accepted proof of `(out, c)` implies some input makes the reference
 halt with output `out` and an outcome matching `c`. Quantifies over every proof `π`.
-[TER8][TER9] -/
+[TER8][TER9][IAM5] -/
 def Type2Sound (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog out c π, z.setup elf = some prog → z.verify2 prog out c π = true →
     ∃ input o, Halts p elf input o ∧ o.output = out ∧ CodeMatches z c o.outcome
