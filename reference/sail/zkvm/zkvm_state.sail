@@ -43,6 +43,7 @@ union zkvm_outcome = {
   ZKVM_Success     : unit,      // main returned 0
   ZKVM_Failure     : bits(32),  // main returned this non-zero error code
   ZKVM_Fault       : unit,      // abnormal termination: a trap or a faulting host call
+  ZKVM_Unspecified : string,    // the guest called this accelerator, whose semantics are not given
 }
 
 // Set once the run has halted; halting again or stepping afterwards is an assertion failure.

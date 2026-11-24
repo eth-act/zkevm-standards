@@ -35,7 +35,8 @@ format, which `run.py` reads:
 
 Summary of the current guests:
 
-| Guest   | Profile | Expected                |
-| ------- | ------- | ----------------------- |
-| `exit3` | x       | failure:3               |
-| `bss`   | x       | success (bss is zeroed) |
+| Guest   | Profile | Expected                   |
+| ------- | ------- | -------------------------- |
+| `exit3` | x       | failure:3                  |
+| `bss`   | x       | success (bss is zeroed)    |
+| `accel` | x       | unspecified:zkvm_keccak256 |

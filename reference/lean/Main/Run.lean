@@ -20,6 +20,7 @@ def outcomeString : Outcome → String
   | .fault => "fault"
   | .leanOutOfFuel => "lean_out_of_fuel"
   | .stuck m => s!"stuck:{m}"
+  | .unspecified n => s!"unspecified:{n}"
 
 def hexByte (b : UInt8) : String :=
   let d := Nat.toDigits 16 b.toNat

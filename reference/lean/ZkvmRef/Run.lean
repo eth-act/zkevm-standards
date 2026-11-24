@@ -21,6 +21,7 @@ inductive Outcome
   | success
   | failure (code : UInt32)
   | fault
+  | unspecified (name : String)
   | leanOutOfFuel
   | stuck (msg : String)
   deriving DecidableEq, Repr
@@ -36,6 +37,7 @@ def Outcome.ofHalt : zkvm_outcome → Outcome
   | .ZKVM_Success () => .success
   | .ZKVM_Failure c => .failure (UInt32.ofNat c.toNat)
   | .ZKVM_Fault () => .fault
+  | .ZKVM_Unspecified n => .unspecified n
 
 /-- Step until the run halts or is stuck, or `fuel` steps have run; returns the observation and
 the final state. -/
@@ -53,7 +55,8 @@ def runFinal : Nat → MState → Observation × MState
 
 def run (fuel : Nat) (s : MState) : Observation := (runFinal fuel s).1
 
-/-- Outcomes that end a run on the guest's behalf. -/
+/-- Outcomes that end a run on the guest's behalf. `unspecified` is not one: the standards do
+not say what an accelerator call does. -/
 def Terminal : Outcome → Prop
   | .success => True
   | .failure _ => True
