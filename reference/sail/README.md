@@ -16,7 +16,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 | ------------------------- | ------------------------------ | ----------------------------------------------------------- |
 | `zkvm_core`               | `zkvm_state.sail`              | memory profile (`zkvm_memory_profile`, register             |
 |                           |                                | `zkvm_profile`); `zkvm_outcome` (`ZKVM_Success`,            |
-|                           |                                | `ZKVM_Failure(code)`, `ZKVM_Fault`); registers `zkvm_halt`, |
+|                           |                                | `ZKVM_Failure(code)`, `ZKVM_Fault`,                         |
+|                           |                                | `ZKVM_Unspecified(symbol)`); registers `zkvm_halt`,         |
 |                           |                                | `zkvm_output_rev` (public output, newest byte first),       |
 |                           |                                | `zkvm_input_size`, `zkvm_misaligned_accesses`; termination  |
 |                           |                                | `zkvm_halt_with` (asserts the run has not halted),          |
@@ -34,7 +35,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | derived from it. Loader-installed registers                 |
 |                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;  |
 |                           |                                | `zkvm_host_at(pc)`; the semantics of `_start`               |
-|                           |                                | (`zkvm_host_call`, by kind)                                 |
+|                           |                                | (`zkvm_host_call`, by kind); an accelerator call halts with |
+|                           |                                | `ZKVM_Unspecified(symbol)`                                  |
 | `zkvm_machine`            | `zkvm_loader.sail`             | the loader: ELF parsing from a byte vector (`zkvm_rd`,      |
 |                           |                                | program headers, the symbol table), `zkvm_validate` (the    |
 |                           |                                | program-header bounds check, first failure reported as a    |

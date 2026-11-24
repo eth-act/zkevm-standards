@@ -30,8 +30,8 @@ Statements are definitions of type `Prop`; nothing is proved and there are no ax
 
 `zkvm-run [--canary] PROFILE ELF INPUT [FUEL]` (default fuel 50000000 steps) validates and boots the
 ELF, runs it and prints
-`outcome=<success|failure:N|fault|lean_out_of_fuel|stuck:MSG> output=<hex> misaligned=<N>` (exit 0),
-or `REJECT <message>` (exit 2) when the loader rejects the ELF; other errors exit 1. Integer
-registers `x1`…`x31` start at 0, or at a distinct nonzero pattern with `--canary`.
+`outcome=<success|failure:N|fault|unspecified:NAME|lean_out_of_fuel|stuck:MSG> output=<hex> misaligned=<N>`
+(exit 0), or `REJECT <message>` (exit 2) when the loader rejects the ELF; other errors exit 1.
+Integer registers `x1`…`x31` start at 0, or at a distinct nonzero pattern with `--canary`.
 
 Build with `../scripts/build-lean.sh`, or `lake build` here once the model is generated.

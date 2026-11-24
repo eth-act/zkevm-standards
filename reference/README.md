@@ -55,6 +55,7 @@ flowchart LR
   L[load: validate ELF, install segments and memory map, bind library symbols, place input] --> S[PC = e_entry = _start]
   S -->|host function _start: set sp, gp, ra| M[main runs as RV64IM]
   M -->|returns to _start| E[halt: exit code a0]
+  M -->|PC reaches an accelerator| U[unspecified]
 ```
 
 A static-library call is the PC reaching the address of a library symbol; the machine then performs
@@ -94,6 +95,8 @@ the commit if the formatter cannot run.
   [`config/README.md`](config/README.md)). All of sail-riscv cannot be generated: its `instruction`
   type has 355 constructors and Lean allows at most 244 (see `scripts/build-lean.sh`).
 - Nothing is proved: the statements are definitions of type `Prop`.
+- Accelerator semantics are unspecified: a run that calls one ends with `unspecified:<symbol>`, and
+  the compliance statements make no claim about it.
 - Reading memory that was never written (outside loaded segments and the input), or a register that
   has no initial value (see [`sail/README.md`](sail/README.md)), makes a run `stuck`: the generated
   model has no value for it.
