@@ -112,7 +112,8 @@ the commit if the formatter cannot run.
   has no initial value (see [`sail/README.md`](sail/README.md)), makes a run `stuck`: the generated
   model has no value for it.
 - Host functions are bound through the ELF symbol table, although the ELF standard builds the image
-  from program headers only.
+  from program headers only; the loader rejects ELFs without `_start`, `main`, `read_input` or
+  `write_output` (#54).
 
 ## Layout
 

@@ -1,14 +1,30 @@
 /-
 Vocabulary for the zkVM static library (standards/static-library-and-linker-script,
 standards/io-interface, standards/accelerated-memory-operations,
-standards/c-interface-accelerators): calls and returns, the psABI register rules, and memory
-permissions. The statements built from them are in ZkvmRef/Compliance.lean.
+standards/c-interface-accelerators): exported symbols, calls and returns, the psABI register
+rules, and memory permissions. The statements built from them are in ZkvmRef/Compliance.lean.
 -/
 import ZkvmRef.Run
 
 open PreSail LeanRV64DExecutable.Functions
 
 namespace ZkvmRef
+
+/-- The ELF's symbol table (as parsed by Sail's `zkvm_validate`) defines `name`. -/
+def Exports (elf : zkvm_elf) (name : String) : Prop := ∃ v, zkvm_symbol_value elf.symbols name = some v
+
+/-- Symbols the static library must export (Sail's `zkvm_library`, `required` functions): the
+entry point, the I/O functions and every accelerator. [LIB2][LIB3][LIB4] -/
+def requiredExports : List String :=
+  (zkvm_library.filter (·.required)).map (·.symbol)
+
+/-- Symbols the linker script must define. [LIB15] -/
+def linkerScriptSymbols : List String := ["_heap_start", "_heap_end"]
+
+/-- Symbols the static library may export (Sail's `zkvm_library`, the other functions: the
+accelerated memory operations). -/
+def optionalExports : List String :=
+  (zkvm_library.filter (!·.required)).map (·.symbol)
 
 /-- Exactly `n` steps, if none of them is stuck. -/
 def stepN : Nat → MState → Option MState

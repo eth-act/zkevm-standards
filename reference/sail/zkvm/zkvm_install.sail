@@ -60,7 +60,7 @@ function zkvm_write_bytes(a, b, off, n) = {
   }
 }
 
-// [ELF11][ELF12][ELF28][ELF29][ELF30] placed at p_vaddr (p_paddr is ignored); the zeros start
+// [ELF11][ELF12][ELF28][ELF29][ELF30][LIB11] placed at p_vaddr (p_paddr is ignored); the zeros start
 // after the file bytes, so they never overwrite them
 // Each PT_LOAD segment: its p_filesz file bytes at p_vaddr, then zeros up to p_memsz.
 val zkvm_write_segments : forall 'len, 'len >= 0. (vector('len, bits(8)), list(zkvm_phdr)) -> unit

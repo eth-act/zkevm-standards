@@ -62,7 +62,8 @@ Summary of the current guests:
 Rejections (`zkvm-run` prints `REJECT <message>`, exit 2): `echo.elf` patched for bad magic,
 ELFCLASS32, wrong machine, wrong type, misaligned entry, W^X, overlapping segments, a segment
 outside the address space, a segment in the input region (outside the profile's `memory`); and the
-`rx` build of `echo` under the `x` profile.
+`rx` build of `echo` under the `x` profile; and `exit3.c` linked against a library with only
+`_start` (`missing symbol read_input`).
 
 Accepted: `echo.elf` with `p_paddr ≠ p_vaddr` runs as `echo` does, because the image is placed at
 `p_vaddr` and the ELF standard does not check `p_paddr`.
