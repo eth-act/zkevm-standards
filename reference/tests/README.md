@@ -18,6 +18,24 @@ messages. It ends with `passed N, failed M` and exits non-zero on any failure. B
 
 ## Guests (`guests/`)
 
+Each guest's expectations are in sidecar files next to it, in
+[zkevm-test-monitor](https://github.com/eth-act/zkevm-test-monitor/tree/main/tests/eth-act-standards)'s
+format, which `run.py` reads:
+
+| File                      | Contents                                                     | Default                |
+| ------------------------- | ------------------------------------------------------------ | ---------------------- |
+| `<name>.input`            | the private input                                            | empty                  |
+| `<name>.expected`         | the public output                                            | empty                  |
+| `<name>.outcome`          | `fail` (a fault: abnormal termination without an error       | successful termination |
+|                           | code), `fail <code>` (`main` returned `<code>`), or, for the |                        |
+|                           | reference only, `unspecified <symbol>` (an accelerator call) |                        |
+| `<name>.misaligned`       | the misaligned-access count (reference only)                 | not checked            |
+| `<name>.profiles`         | memory profiles to run under: `x` and/or `rx` (reference     | `x`                    |
+|                           | only)                                                        |                        |
+| `<name>.<profile>.<kind>` | overrides `<name>.<kind>` under that profile                 |                        |
+
+Summary of the current guests:
+
 | Guest                               | Profile | Expected                                                  |
 | ----------------------------------- | ------- | --------------------------------------------------------- |
 | `echo`                              | x, rx   | success, output `len=10;mvkz olleh` (reads input, two     |
@@ -31,7 +49,7 @@ messages. It ends with `passed N, failed M` and exits non-zero on any failure. B
 | `ebreak`, `illegal`, `ecall`, `csr` | x       | fault (trap)                                              |
 | `misaligned_load`                   | x       | success, output `0405060708090a0b`, 2 misaligned accesses |
 | `text_read`                         | x       | fault (execute-only code is unreadable)                   |
-| `text_read`                         | rx      | success, output = the first byte of `main`                |
+| `text_read`                         | rx      | success, output `13000000` (a `nop` read as data)         |
 | `output_then_fail`                  | x       | failure:5, output `partial`                               |
 | `bss`                               | x       | success (bss is zeroed)                                   |
 | `memops`                            | x       | success, output of `memcpy`/`memmove`/`memset`/`memcmp`   |

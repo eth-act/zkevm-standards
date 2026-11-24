@@ -2,6 +2,18 @@
 """Tests of the Lean reference: each guest must produce its expected observation, and
 zkvm-run must reject malformed ELFs with the exact loader message.
 
+Each guest `guests/<name>.c` has its expectations in sidecar files, in zkevm-test-monitor's
+format (https://github.com/eth-act/zkevm-test-monitor/tree/main/tests/eth-act-standards):
+  <name>.input     the private input (default: empty)
+  <name>.expected  the public output (default: empty)
+  <name>.outcome   `fail` (a fault: abnormal termination without an error code) or `fail <code>`
+                   (main returned <code>); default: successful termination
+and, for the reference only:
+  <name>.outcome   `unspecified <symbol>` (the guest called an accelerator)
+  <name>.misaligned  the misaligned-access count
+  <name>.profiles  the memory profiles to run under, `x` and/or `rx` (default: `x`)
+  <name>.<profile>.<kind>  overrides <name>.<kind> under that profile
+
 Run from the repository root after scripts/build-lean.sh:
     python3 reference/tests/run.py
 """
@@ -13,7 +25,6 @@ import struct
 import subprocess
 import sys
 
-from elftools.elf.elffile import ELFFile
 
 ROOT = pathlib.Path.cwd()
 REF = ROOT / "reference"
@@ -28,12 +39,8 @@ CFLAGS = [
     "-I", str(ROOT / "standards" / "io-interface"),
     "-I", str(ROOT / "standards" / "c-interface-accelerators"),
 ]
-INPUT = b"hello zkvm"
-
-FAULT_GUESTS = [
-    "null_load", "null_store_fff", "stack_overflow", "misaligned_jump", "input_write",
-    "output_null", "ebreak", "illegal", "ecall", "csr",
-]
+GUESTS = REF / "tests" / "guests"
+ECHO_INPUT = (GUESTS / "echo.input").read_bytes()
 
 results = []
 
@@ -102,25 +109,47 @@ def run_lean(profile, elf, workdir, canary=False):
     return m.group(1), bytes.fromhex(m.group(2)), int(m.group(3))
 
 
-def symbol_file_byte(elf, name):
-    with open(elf, "rb") as f:
-        e = ELFFile(f)
-        addr = e.get_section_by_name(".symtab").get_symbol_by_name(name)[0]["st_value"]
-        for seg in e.iter_segments():
-            if seg["p_type"] == "PT_LOAD" and seg["p_vaddr"] <= addr < seg["p_vaddr"] + seg["p_filesz"]:
-                f.seek(seg["p_offset"] + addr - seg["p_vaddr"])
-                return f.read(1)
-    raise RuntimeError(f"symbol {name} not in file data")
+def sidecar(guest, profile, kind):
+    """The bytes of guests/<guest>.<profile>.<kind>, else guests/<guest>.<kind>, else None."""
+    short = profile.removeprefix("reference-")
+    for path in (GUESTS / f"{guest}.{short}.{kind}", GUESTS / f"{guest}.{kind}"):
+        if path.exists():
+            return path.read_bytes()
+    return None
 
 
-def case(guest, profile, outcome, output, misaligned=None):
+def expected_outcome(text):
+    """zkvm-run's outcome string for an `.outcome` file's contents (None: success)."""
+    if text is None:
+        return "success"
+    words = text.decode().split()
+    if words == ["fail"]:
+        return "fault"
+    if len(words) == 2 and words[0] == "fail":
+        return f"failure:{int(words[1])}"
+    if len(words) == 2 and words[0] == "unspecified":
+        return f"unspecified:{words[1]}"
+    raise ValueError(f"bad .outcome contents {text!r}")
+
+
+def guest_profiles(guest):
+    path = GUESTS / f"{guest}.profiles"
+    names = path.read_text().split() if path.exists() else ["x"]
+    return [f"reference-{p}" for p in names]
+
+
+def case(guest, profile):
     """Run with x1..x31 all zero and again with a canary pattern: both must give the expected
     observation, since the standards leave the initial integer registers unspecified."""
+    outcome = expected_outcome(sidecar(guest, profile, "outcome"))
+    output = sidecar(guest, profile, "expected") or b""
+    mis_text = sidecar(guest, profile, "misaligned")
+    misaligned = int(mis_text) if mis_text is not None else None
     elf = BUILD / profile / f"{guest}.elf"
     workdir = BUILD / "runs" / profile / guest
     shutil.rmtree(workdir, ignore_errors=True)
     workdir.mkdir(parents=True)
-    (workdir / "input.bin").write_bytes(INPUT)
+    (workdir / "input.bin").write_bytes(sidecar(guest, profile, "input") or b"")
     problems = []
     for canary in (False, True):
         regs = "canary" if canary else "zero"
@@ -170,7 +199,7 @@ def rejection(name, elf_bytes, message, profile="reference-x"):
     workdir.mkdir(parents=True)
     elf = workdir / "guest.elf"
     elf.write_bytes(elf_bytes)
-    (workdir / "input.bin").write_bytes(INPUT)
+    (workdir / "input.bin").write_bytes(ECHO_INPUT)
     want = f"REJECT {message}"
     r = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
                        capture_output=True, text=True)
@@ -185,7 +214,7 @@ def accepted(name, elf_bytes, outcome, output, profile="reference-x"):
     workdir.mkdir(parents=True)
     elf = workdir / "guest.elf"
     elf.write_bytes(elf_bytes)
-    (workdir / "input.bin").write_bytes(INPUT)
+    (workdir / "input.bin").write_bytes(ECHO_INPUT)
     got_outcome, got_output, _ = run_lean(profile, elf, workdir)
     report(f"accept {name} -> {outcome} {output!r}", (got_outcome, got_output) == (outcome, output),
            f"got {got_outcome} {got_output!r}")
@@ -207,20 +236,9 @@ def missing_symbol_elf():
 def main():
     build()
 
-    for profile in PROFILES:
-        case("echo", profile, "success", b"len=10;mvkz olleh")
-    case("exit3", "reference-x", "failure:3", b"")
-    for guest in FAULT_GUESTS:
-        case(guest, "reference-x", "fault", b"")
-    case("misaligned_load", "reference-x", "success", bytes(range(4, 12)), misaligned=2)
-    case("text_read", "reference-x", "fault", b"")
-    case("text_read", "reference-rx", "success",
-         symbol_file_byte(BUILD / "reference-rx" / "text_read.elf", "main"))
-    case("output_then_fail", "reference-x", "failure:5", b"partial")
-    case("bss", "reference-x", "success", b"")
-    case("memops", "reference-x", "success", bytes.fromhex(
-        "010201020304050607080b0c0d0e0f100102030405060708abababab00000000ff00"))
-    case("accel", "reference-x", "unspecified:zkvm_keccak256", b"")
+    for src in sorted(GUESTS.glob("*.c")):
+        for profile in guest_profiles(src.stem):
+            case(src.stem, profile)
 
     rejection("bad-magic", patched(put("<B", 0, 0)), "bad magic")
     rejection("class32", patched(put("<B", 4, 1)), "class is not ELFCLASS64")

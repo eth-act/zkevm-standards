@@ -72,8 +72,8 @@ ends the run with a fault.
 
 ## Build and test
 
-Prerequisites: `riscv64-unknown-elf-gcc`, `z3`, `elan`, `python3` with `pyelftools`, and network
-access for the Sail release and the `lean-sail` dependency. From the repository root:
+Prerequisites: `riscv64-unknown-elf-gcc`, `z3`, `elan`, `python3`, and network access for the Sail
+release and the `lean-sail` dependency. From the repository root:
 
 ```sh
 git submodule update --init reference/sail-riscv
