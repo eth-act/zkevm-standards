@@ -1,5 +1,6 @@
 // ELF loading and validation (standards/elf-loading-and-validation) against the zkVM's memory
 // profile: which ELFs are accepted, the memory map they get, and the symbols the machine binds.
+// [ELF1]
 // zkvm_validate is a pure function of the profile and the ELF bytes; zkvm_install
 // (zkvm_install.sail) puts its result into machine state.
 
@@ -234,6 +235,8 @@ struct zkvm_pages = {
   painter : zkvm_painter,
 }
 
+// [ELF20][ELF21][ELF23] only PF_X segments are executable; an execute-only segment is not
+// readable; a writable segment is never executable
 // Permission given to a page holding a segment with these flags.
 function zkvm_seg_perm(flags : bits(32)) -> zkvm_perm =
   if (flags & ZKVM_PF_X) != zeros() then
@@ -332,6 +335,108 @@ function zkvm_loads(phs) =
     ph :: rest => if zkvm_is_load(ph) then ph :: zkvm_loads(rest) else zkvm_loads(rest),
   }
 
+// The per-segment checks, in program-header order; the first failure.
+val zkvm_check_segments : (zkvm_memory_profile, int, list(zkvm_phdr)) -> option(string)
+function zkvm_check_segments(p, size, phs) =
+  match phs {
+    [||] => None(),
+    ph :: rest => {
+      let h = hex_str(ph.vaddr);
+      let space = p.address_space;
+      let want : bits(32) = match p.exec_perm {
+        ZKVM_EXEC_X => ZKVM_PF_X,
+        ZKVM_EXEC_RX => ZKVM_PF_X | ZKVM_PF_R,
+      };
+      if ph.filesz > ph.memsz then Some("segment " ^ h ^ ": p_filesz > p_memsz")
+      else if ph.offset + ph.filesz > size then Some("segment " ^ h ^ ": file data outside the file")
+      // [ELF14]
+      else if emod_int(ph.vaddr, 4) != 0 then Some("segment " ^ h ^ ": p_vaddr not 4-byte aligned")
+      // [ELF13]
+      else if not(unsigned(space.base) <= ph.vaddr &
+                  ph.vaddr + ph.memsz <= unsigned(space.base) + unsigned(space.size)) then
+        Some("segment " ^ h ^ ": outside the addressable space")
+      // [ELF17]
+      else if (ph.flags & ZKVM_PF_W) != zeros() & zkvm_is_exec(ph) then
+        Some("segment " ^ h ^ ": W^X violated")
+      // [ELF18][ELF22]
+      else if zkvm_is_exec(ph) & (ph.flags & (ZKVM_PF_X | ZKVM_PF_R)) != want then
+        Some("segment " ^ h ^ ": executable flags do not match profile")
+      else zkvm_check_segments(p, size, rest)
+    },
+  }
+
+val zkvm_insert_phdr : (zkvm_phdr, list(zkvm_phdr)) -> list(zkvm_phdr)
+function zkvm_insert_phdr(ph, phs) =
+  match phs {
+    [||] => [|ph|],
+    q :: rest => if ph.vaddr <= q.vaddr then ph :: phs else q :: zkvm_insert_phdr(ph, rest),
+  }
+
+// [ELF16] overlap is checked on the segments sorted by vaddr, so the result does not depend on
+// program-header order
+// Non-empty segments sorted by vaddr (stable).
+val zkvm_sorted_nonempty : list(zkvm_phdr) -> list(zkvm_phdr)
+function zkvm_sorted_nonempty(phs) =
+  match phs {
+    [||] => [||],
+    ph :: rest => {
+      let sorted = zkvm_sorted_nonempty(rest);
+      if ph.memsz == 0 then sorted else zkvm_insert_phdr(ph, sorted)
+    },
+  }
+
+val zkvm_first_overlap_with : (zkvm_phdr, list(zkvm_phdr)) -> option(zkvm_phdr)
+function zkvm_first_overlap_with(a, phs) =
+  match phs {
+    [||] => None(),
+    c :: rest => if c.vaddr < a.vaddr + a.memsz then Some(c) else zkvm_first_overlap_with(a, rest),
+  }
+
+// [ELF15]
+// The first pair (a, c), a before c in the sorted list, of overlapping segments.
+val zkvm_first_overlap : list(zkvm_phdr) -> option(string)
+function zkvm_first_overlap(phs) =
+  match phs {
+    [||] => None(),
+    a :: rest => match zkvm_first_overlap_with(a, rest) {
+      Some(c) => Some("segments " ^ hex_str(a.vaddr) ^ " and " ^ hex_str(c.vaddr) ^ " overlap"),
+      None() => zkvm_first_overlap(rest),
+    },
+  }
+
+val zkvm_entry_in_exec : (int, list(zkvm_phdr)) -> bool
+function zkvm_entry_in_exec(entry, phs) =
+  match phs {
+    [||] => false,
+    ph :: rest => (zkvm_is_exec(ph) & ph.vaddr <= entry & entry < ph.vaddr + ph.memsz) |
+                  zkvm_entry_in_exec(entry, rest),
+  }
+
+// [ELF19] The address of the first 4-byte word in the file bytes of a PF_X-only segment that does
+// not decode as an instruction of this build (RV64IM), or that the end of the segment cuts short;
+// None() if every word decodes. Not part of zkvm_validate: the standard makes decodability the
+// ELF producer's obligation ("a loader is not required to prove its absence").
+val zkvm_exec_undecodable : forall 'len, 'len >= 0.
+  (vector('len, bits(8)), list(zkvm_phdr)) -> option(int)
+function zkvm_exec_undecodable(b, phs) =
+  match phs {
+    [||] => None(),
+    ph :: rest => {
+      if zkvm_is_load(ph) & (ph.flags & (ZKVM_PF_X | ZKVM_PF_W | ZKVM_PF_R)) == ZKVM_PF_X then {
+        foreach (k from 0 to ph.filesz - 1 by 4) {
+          if k + 4 > ph.filesz then return Some(ph.vaddr + k);
+          let w : bits(32) = to_bits_truncate(zkvm_rd(b, ph.offset + k, 4));
+          match ext_decode(w) {
+            ILLEGAL(_) => return Some(ph.vaddr + k),
+            C_ILLEGAL(_) => return Some(ph.vaddr + k),
+            _ => (),
+          }
+        }
+      };
+      zkvm_exec_undecodable(b, rest)
+    },
+  }
+
 // Paint each non-empty segment's pages with its permission.
 val zkvm_paint_segments : (list(zkvm_pages), list(zkvm_phdr)) -> list(zkvm_pages)
 function zkvm_paint_segments(ps, phs) =
@@ -347,14 +452,41 @@ val zkvm_validate : forall 'len, 'len >= 0.
   (zkvm_memory_profile, vector('len, bits(8))) -> result(zkvm_image, string)
 function zkvm_validate(p, b) = {
   let size = length(b);
+  // Header.
+  // [ELF2][ELF31][ELF32] each check rejects before any machine state exists; e_flags is not read.
+  // [ELF3] "\x7fELF" read as a little-endian 32-bit integer.
+  if size < 64 | zkvm_rd(b, 0, 4) != 1179403647 then return Err("bad magic");
+  // [ELF4]
+  if zkvm_rd(b, 4, 1) != 2 then return Err("class is not ELFCLASS64");
+  // [ELF5][ELF8] the encoding is fixed, never inferred from the file
+  if zkvm_rd(b, 5, 1) != 1 then return Err("not ELFDATA2LSB");
+  // [ELF6]
+  if zkvm_rd(b, 18, 2) != 243 then return Err("e_machine is not EM_RISCV");
+  // [ELF7]
+  if zkvm_rd(b, 16, 2) != 2 then return Err("e_type is not ET_EXEC");
   let phoff = zkvm_rd(b, 32, 8);
   let phnum = zkvm_rd(b, 56, 2);
-  if size < 64 | zkvm_rd(b, 54, 2) != 56 | phoff + phnum * 56 > size then
+  if zkvm_rd(b, 54, 2) != 56 | phoff + phnum * 56 > size then
     return Err("program headers outside the file");
   var phdrs : list(zkvm_phdr) = [||];
   foreach (i from phnum - 1 downto 0) phdrs = zkvm_parse_phdr(b, phoff + i * 56) :: phdrs;
   let elf : zkvm_elf = struct { entry = zkvm_rd(b, 24, 8), phdrs = phdrs, symbols = zkvm_parse_symbols(b) };
+  // [ELF9][ELF10] the image comes from the PT_LOAD program headers only; section headers are
+  // read only for symbols
   let loads = zkvm_loads(phdrs);
+  // Segments.
+  match zkvm_check_segments(p, size, loads) { Some(m) => return Err(m), None() => () };
+  match zkvm_first_overlap(zkvm_sorted_nonempty(loads)) { Some(m) => return Err(m), None() => () };
+  // Entry point.
+  // [ELF25]
+  if emod_int(elf.entry, 4) != 0 then return Err("e_entry not 4-byte aligned");
+  // [ELF26]
+  if not(zkvm_entry_in_exec(elf.entry, loads)) then return Err("e_entry not inside an executable segment");
+  // [ELF27]
+  match p.boot_addr {
+    Some(boot) => if elf.entry != unsigned(boot) then return Err("e_entry differs from the fixed boot address"),
+    None() => (),
+  };
   // Memory map: input, memory and stack, then segments.
   var ps : list(zkvm_pages) = [||];
   ps = zkvm_paint(ps, unsigned(p.input.base), unsigned(p.input.size), ZKVM_PERM_R, ZKVM_PAINT_INPUT);

@@ -21,6 +21,10 @@ the statements make no claim about them either. -/
 def Halts (p : MemoryProfile) (elf input : ByteArray) (o : Observation) : Prop :=
   ∀ gprs, ∃ s n, boot p elf input gprs = .ok s ∧ run n s = o ∧ Terminal o.outcome
 
+/-- The reference loader rejects `elf` under `p`. -/
+def Rejects (p : MemoryProfile) (elf : ByteArray) : Prop :=
+  ∃ m, validate p elf = .error m
+
 /-- An abstract zkVM: setup (loading), execution, and two kinds of verifiers.
 `verify1` checks proofs of successful runs with a given output; `verify2` checks proofs of
 runs with a given output and exit code. `failureCode d` is the code the zkVM reports when
@@ -61,6 +65,10 @@ def ObsMatches (z : ZkVM) (vendor reference : Observation) : Prop :=
     (vendor.outcome = z.reported reference.outcome ∨
       (reference.outcome = .fault ∧ ∃ c, c ≠ 0 ∧ vendor.outcome = .failure c))
 
+/-- The zkVM accepts exactly the ELFs the reference loader accepts. -/
+def LoaderConforms (z : ZkVM) (p : MemoryProfile) : Prop :=
+  ∀ elf, z.setup elf = none ↔ Rejects p elf
+
 /-- Whenever the reference halts, the zkVM's execution produces a matching observation. -/
 def ExecutionConforms (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog input o, z.setup elf = some prog → Halts p elf input o →
@@ -85,10 +93,11 @@ def Type1Complete (z : ZkVM) (p : MemoryProfile) : Prop :=
   ∀ elf prog input out, z.setup elf = some prog → Halts p elf input ⟨.success, out⟩ →
     ∃ π, z.verify1 prog out π = true
 
-/-- A compliant zkVM reports failures with non-zero codes, conforms in execution,
+/-- A compliant zkVM reports failures with non-zero codes, conforms in loading and execution,
 and is sound for one proof type. [TER6] -/
 def Compliant (z : ZkVM) (p : MemoryProfile) : Prop :=
-  FailureCodesNonZero z ∧ ExecutionConforms z p ∧ (Type1Sound z p ∨ Type2Sound z p)
+  FailureCodesNonZero z ∧ LoaderConforms z p ∧ ExecutionConforms z p ∧
+    (Type1Sound z p ∨ Type2Sound z p)
 
 -- Static library
 

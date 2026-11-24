@@ -3,14 +3,15 @@
 `python3 reference/tests/run.py` (from the repository root, after `scripts/build-lean.sh`) builds
 every guest for both profiles and runs it with `zkvm-run` twice (integer registers `x1`…`x31` all
 zero, then a canary pattern; both runs must give the expected observation, since the standards leave
-initial registers unspecified). It ends with `passed N, failed M` and exits non-zero on any failure.
-Build products go to `../build/tests/`.
+initial registers unspecified), checks the loader's rejection messages, and checks that
+`zkvm-run --check-exec-decodes` accepts the `echo` ELF under the `x` profile. It ends with
+`passed N, failed M` and exits non-zero on any failure. Build products go to `../build/tests/`.
 
 ## Stub library and linker script
 
-- Stub library: `run.py` generates `build/tests/stubs.S` with one `unimp` per symbol that
-  `zkvm-run --list-symbols` prints (Sail's `zkvm_library`). Never executed: the machine performs the
-  host function when the PC reaches the symbol.
+- Stub library: `run.py` generates `build/tests/stubs.S` with one `ebreak` (RV64I, so execute-only
+  segments stay decodable) per symbol that `zkvm-run --list-symbols` prints (Sail's `zkvm_library`).
+  Never executed: the machine performs the host function when the PC reaches the symbol.
 - `stublib/link.ld.in`: text at the start of RAM, then rodata and data/bss segments, each
   page-aligned; defines `_heap_start`, `_heap_end` and `__global_pointer$`. `run.py` fills
   `@TEXT_FLAGS@` (1 for `x`, 5 for `rx`), `@RAM_BASE@` and `@RAM_END@` from the profile.
@@ -51,3 +52,12 @@ Summary of the current guests:
 | `input_write`                       | x       | fault (input region is read-only)                            |
 | `misaligned_jump`                   | x       | fault (misaligned jump target)                               |
 | `misaligned_load`                   | x       | success, output `0405060708090a0b`, 2 misaligned accesses    |
+| `text_read`                         | x       | fault (execute-only code is unreadable)                      |
+| `text_read`                         | rx      | success, output `13000000` (a `nop` read as data)            |
+
+Rejections (`zkvm-run` prints `REJECT <message>`, exit 2): `echo.elf` patched for bad magic,
+ELFCLASS32, wrong machine, wrong type, misaligned entry, W^X, overlapping segments, a segment
+outside the address space; and the `rx` build of `echo` under the `x` profile.
+
+Accepted: `echo.elf` with `p_paddr ≠ p_vaddr` runs as `echo` does, because the image is placed at
+`p_vaddr` and the ELF standard does not check `p_paddr`.
