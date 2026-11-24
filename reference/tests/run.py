@@ -62,6 +62,8 @@ def linker_script(profile, out):
         "@TEXT_FLAGS@": str({"x": 1, "rx": 5}[prof["exec_perm"]]),
         "@RAM_BASE@": ram["base"],
         "@RAM_END@": hex(int(ram["base"], 16) + int(ram["size"], 16)),
+        "@STACK_BASE@": prof["stack"]["base"],
+        "@STACK_END@": hex(int(prof["stack"]["base"], 16) + int(prof["stack"]["size"], 16)),
     }
     text = (STUBLIB / "link.ld.in").read_text()
     for key, value in subst.items():
@@ -256,6 +258,9 @@ def main():
     rejection("outside", patched(both(phdr_field(0, 16, "<Q", lambda v: 0x200000000),
                                       phdr_field(0, 24, "<Q", lambda v: 0x200000000))),
               "segment 0x200000000: outside the addressable space")
+    rejection("segment-in-input", patched(both(phdr_field(2, 16, "<Q", lambda v: 0x40000000),
+                                               phdr_field(2, 24, "<Q", lambda v: 0x40000000))),
+              "segment page 0x40000000 outside memory")
     exec_decodes("reference-x", BUILD / "reference-x" / "echo.elf")
 
     passed = sum(results)

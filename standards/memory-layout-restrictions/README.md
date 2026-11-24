@@ -29,3 +29,13 @@ While Linux determines program entry points dynamically from ELF headers, some z
 Some zkVMs preload program input into fixed memory regions. In contrast, Linux programs retrieve input dynamically through system calls like `read`.
 
 Linux has minimal memory layout restrictions (null pointer protection, page-aligned segments with proper permissions). These assume a flexibility that zkVMs cannot provide given their cryptographic and architectural constraints.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| LAY1 | Each zkVM vendor must provide its own linker script that correctly describes its memory constraints, including the location and size of critical memory regions such as heap and stack areas. | vendor library | Sail, monitor, monitor-static |
+| LAY2 | C/C++ and Rust programs should be linked using that vendor's linker script. | guest | not tested: guest obligation |
+| LAY3 | If a program is linked against `libc`, the linker script must define symbols that the `libc` implementation depends upon, most notably heap boundaries and other memory region demarcations. | vendor library | not tested: the clause names no libc (standards issue #51) |

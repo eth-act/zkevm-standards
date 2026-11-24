@@ -15,6 +15,7 @@ struct zkvm_range = {
 // Permission of executable segments the zkVM accepts: execute-only or read+execute.
 enum zkvm_exec_perm = { ZKVM_EXEC_X, ZKVM_EXEC_RX }
 
+// [LAY1] the memory layout the vendor's linker script describes
 struct zkvm_memory_profile = {
   exec_perm     : zkvm_exec_perm,
   address_space : zkvm_range,           // every segment lies in it
