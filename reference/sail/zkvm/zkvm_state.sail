@@ -58,6 +58,7 @@ register zkvm_input_size : xlenbits = zeros()
 // Misaligned data accesses so far (riscv-target: zkVMs expose this count).
 register zkvm_misaligned_accesses : bits(64) = zeros()
 
+// [TER1][TER4] the run halts once, with one outcome
 // Record the outcome. The run must not have halted already.
 function zkvm_halt_with(o : zkvm_outcome) -> unit =
   match zkvm_halt {
@@ -65,6 +66,7 @@ function zkvm_halt_with(o : zkvm_outcome) -> unit =
     Some(_) => assert(false, "zkvm_halt_with: the run has already halted"),
   }
 
+// [TER2][TER5][TER10][TER11]
 // main returned `code` to _start: 0 is success, anything else failure with that error code.
 function zkvm_exit(code : bits(32)) -> unit =
   zkvm_halt_with(if code == zeros() then ZKVM_Success() else ZKVM_Failure(code))

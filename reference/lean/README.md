@@ -23,7 +23,9 @@ decodes input files, runs the step, and holds the statements and the executable.
 | `ZkvmRef/StaticLibrary.lean` | vocabulary for library statements: `stepN`, `CallReturns`,   |
 |                              | psABI callee-saved registers, `Readable`/`Writable`,         |
 |                              | `AtEntry`, `native`                                          |
-| `ZkvmRef/Compliance.lean`    | compliance statements: for vendor static libraries           |
+| `ZkvmRef/Compliance.lean`    | compliance statements: for zkVMs `Halts`, `ZkVM`,            |
+|                              | `ExecutionConforms`, `Type1Sound`, `Type2Sound`,             |
+|                              | `Type1Complete`, `Compliant`; for vendor static libraries    |
 |                              | `ImplementsHost`                                             |
 | `Main/Run.lean`              | executable `zkvm-run` (arguments: optional `--canary`,       |
 |                              | PROFILE, ELF, INPUT, optional FUEL): validates, boots and    |

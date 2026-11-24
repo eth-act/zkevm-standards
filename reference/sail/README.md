@@ -47,16 +47,21 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 | `zkvm_machine`            | `zkvm_install.sail`            | machine initialisation: `zkvm_install` (profile, memory map |
 |                           |                                | with its PMA attributes, PC, reset, segment bytes, host     |
 |                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values  |
-|                           |                                | for the control registers sail-riscv reads before writing)  |
+|                           |                                | for the control registers sail-riscv reads before writing,  |
+|                           |                                | and the trap vector `zkvm_trap_vector`)                     |
 | `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: asserts the run has not halted; then the host  |
 |                           |                                | function bound to the PC, or one instruction via            |
-|                           |                                | sail-riscv's `try_step`                                     |
+|                           |                                | sail-riscv's `try_step`, halting with `ZKVM_Fault()` if the |
+|                           |                                | instruction trapped                                         |
 
 `zkvm_load_byte`/`zkvm_store_byte` go through sail-riscv's `vmem_read_addr`/`vmem_write_addr`, so
 host functions access memory with the same permission checks as guest loads and stores.
 
 ## How the zkVM behaviour is attached without patching sail-riscv
 
+- **Every trap is a fault.** sail-riscv's trap handler jumps to `mtvec`. `zkvm_reset` points `mtvec`
+  at `zkvm_trap_vector` (address 0), and `zkvm_step` halts with `ZKVM_Fault()` whenever PC is
+  `zkvm_trap_vector` after an instruction.
 - **Extensions outside the build.** `zkvm_extension_fallback` is ordered into the scattered
   `currentlyEnabled` with `before postlude`.
 

@@ -1,6 +1,10 @@
 // Machine initialisation: puts a validated image (zkvm_loader.sail) and the private input into
 // machine state.
 
+// Trap vector installed by zkvm_reset. zkvm_instruction_step ends the run with a fault when PC
+// reaches it.
+let zkvm_trap_vector : xlenbits = zeros()
+
 // The memory attributes of a region. Only read-write regions are main memory. Misaligned loads
 // and stores never fault (Zicclsm).
 function zkvm_pma_region(r : zkvm_region) -> PMA_Region = {
@@ -85,7 +89,7 @@ function zkvm_bindings(syms, fs) =
 // zero. mtvec is the zkVM's trap vector. Every other register without a Sail initialiser stays
 // unset, so a read of it makes the run stuck instead of returning an arbitrary value.
 function zkvm_reset() -> unit = {
-  mtvec = Mk_Mtvec(zeros());
+  mtvec = Mk_Mtvec(zkvm_trap_vector);
   stvec = Mk_Mtvec(zeros());
   medeleg = Mk_Medeleg(zeros());
   mideleg = Mk_Minterrupts(zeros());
