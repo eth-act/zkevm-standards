@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Format staged markdown under reference/ with reference/scripts/md-wrap-prose (prettier prose
+# wrap at 100 columns, table cells wrapped at 60). The staged content is formatted, so partially
+# staged files commit only their formatted staged part; the working-tree copy is rewritten too
+# when it has no unstaged changes. Fails the commit when python3 or prettier is missing.
+# Install: reference/scripts/install-git-hooks.sh
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+FMT="$ROOT/reference/scripts/md-wrap-prose"
+
+command -v python3 > /dev/null || {
+    echo "pre-commit: python3 not found (needed by reference/scripts/md-wrap-prose)" >&2
+    exit 1
+}
+if ! printf '' | "$FMT" > /dev/null 2>&1; then
+    echo "pre-commit: reference/scripts/md-wrap-prose cannot run; install prettier (on PATH or" >&2
+    echo "            ~/.local/share/nvim/mason/bin/prettier)" >&2
+    exit 1
+fi
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+git diff --cached --name-only --diff-filter=ACMR -z -- ':(glob)reference/**/*.md' |
+    while IFS= read -r -d '' f; do
+        git show ":$f" | "$FMT" > "$tmp"
+        mode="$(git ls-files -s -- "$f" | cut -d' ' -f1)"
+        blob="$(git hash-object -w -- "$tmp")"
+        clean=0
+        git diff --quiet -- "$f" && clean=1
+        git update-index --cacheinfo "$mode,$blob,$f"
+        if [ "$clean" = 1 ]; then cp "$tmp" "$ROOT/$f"; fi
+    done

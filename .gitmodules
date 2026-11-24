@@ -1,0 +1,3 @@
+[submodule "reference/sail-riscv"]
+	path = reference/sail-riscv
+	url = https://github.com/riscv/sail-riscv
