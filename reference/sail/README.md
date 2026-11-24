@@ -21,7 +21,7 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | `zkvm_output_rev` (public output, newest byte first),       |
 |                           |                                | `zkvm_input_size`, `zkvm_misaligned_accesses`; termination  |
 |                           |                                | `zkvm_halt_with` (asserts the run has not halted),          |
-|                           |                                | `zkvm_exit`                                                 |
+|                           |                                | `zkvm_exit`, `zkvm_host_fault`                              |
 | `zkvm_extension_fallback` | `zkvm_extension_fallback.sail` | last clause of `currentlyEnabled`: extensions whose module  |
 |                           |                                | is not built are disabled (asserts the configuration does   |
 |                           |                                | not claim them). Ordered `after extensions, mops` and       |
@@ -34,9 +34,10 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | required and optional exports, the test stub library) is    |
 |                           |                                | derived from it. Loader-installed registers                 |
 |                           |                                | `zkvm_host_table`, `zkvm_main`, `zkvm_gp`, `zkvm_started`;  |
-|                           |                                | `zkvm_host_at(pc)`; the semantics of `_start`               |
-|                           |                                | (`zkvm_host_call`, by kind); an accelerator call halts with |
-|                           |                                | `ZKVM_Unspecified(symbol)`                                  |
+|                           |                                | `zkvm_host_at(pc)`; checked byte access `zkvm_load_byte`,   |
+|                           |                                | `zkvm_store_byte`; the semantics of `_start`, `memcpy`,     |
+|                           |                                | `memmove`, `memset`, `memcmp` (`zkvm_host_call`, by kind);  |
+|                           |                                | an accelerator call halts with `ZKVM_Unspecified(symbol)`   |
 | `zkvm_machine`            | `zkvm_loader.sail`             | the loader: ELF parsing from a byte vector (`zkvm_rd`,      |
 |                           |                                | program headers, the symbol table), `zkvm_validate` (the    |
 |                           |                                | program-header bounds check, first failure reported as a    |
@@ -49,6 +50,9 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 | `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: asserts the run has not halted; then the host  |
 |                           |                                | function bound to the PC, or one instruction via            |
 |                           |                                | sail-riscv's `try_step`                                     |
+
+`zkvm_load_byte`/`zkvm_store_byte` go through sail-riscv's `vmem_read_addr`/`vmem_write_addr`, so
+host functions access memory with the same permission checks as guest loads and stores.
 
 ## How the zkVM behaviour is attached without patching sail-riscv
 
