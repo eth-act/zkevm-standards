@@ -1,0 +1,8 @@
+{
+  "extensions": {
+    "M": {"supported": true}
+  },
+  "base": {
+    "mstatus": {"fs_legal_states": "ExtContext_Off", "vs_legal_states": "ExtContext_Off"}
+  }
+}

@@ -1,0 +1,43 @@
+name: reference
+
+on:
+  pull_request:
+    paths:
+      - "reference/**"
+      - "standards/**"
+      - ".github/workflows/reference.yml"
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    # Debian trixie: Ubuntu 24.04's riscv64-unknown-elf-gcc (13.2) does not know Zicclsm.
+    container: debian:trixie
+    timeout-minutes: 120
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git curl ca-certificates zstd z3 python3 gcc-riscv64-unknown-elf
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            reference/build/lean/Lean_RV64D_executable/.lake
+            reference/lean/.lake
+          key: reference-lean-${{ hashFiles('reference/sail/**', 'reference/config/**', 'reference/sail-riscv/model/**') }}
+
+      - name: Build the Lean reference
+        run: reference/scripts/build-lean.sh
+
+      - name: Tests
+        run: python3 reference/tests/run.py
+
+      - name: Requirement tags
+        run: python3 reference/scripts/check-requirements.py
