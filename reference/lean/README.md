@@ -24,8 +24,8 @@ decodes input files, runs the step, and holds the statements and the executable.
 |                              | psABI callee-saved registers, `Readable`/`Writable`,         |
 |                              | `AtEntry`, `native`                                          |
 | `ZkvmRef/LoaderSpec.lean`    | statements about the reference loader: `SegmentsLoaded`,     |
-|                              | `PcAtEntry`, `WXRespected`, `ExecMatchesProfile`,            |
-|                              | `LoaderCorrect`                                              |
+|                              | `PcAtEntry`, `GuardsUnmapped`, `WXRespected`,                |
+|                              | `ExecMatchesProfile`, `LoaderCorrect`                        |
 | `ZkvmRef/Compliance.lean`    | compliance statements: for zkVMs `Halts`, `Rejects`, `ZkVM`, |
 |                              | `LoaderConforms`, `ExecutionConforms`, `Type1Sound`,         |
 |                              | `Type2Sound`, `Type1Complete`, `Compliant`; for vendor       |

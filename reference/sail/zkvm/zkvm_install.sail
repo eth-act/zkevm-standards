@@ -1,9 +1,11 @@
 // Machine initialisation: puts a validated image (zkvm_loader.sail) and the private input into
 // machine state.
 
-// Trap vector installed by zkvm_reset. zkvm_instruction_step ends the run with a fault when PC
-// reaches it.
-let zkvm_trap_vector : xlenbits = zeros()
+// [GUA2][GUA6][GUA9] an access to a guard region traps, and every trap ends the run with a fault
+// Trap vector installed by zkvm_reset. It lies in the null page, which the loader never maps,
+// so no guest instruction executes there: PC reaches it only through a trap, or through a jump
+// to it, whose fetch would fault anyway.
+let zkvm_trap_vector : xlenbits = zkvm_null_page.base
 
 // The memory attributes of a region. Only read-write regions are main memory. Misaligned loads
 // and stores never fault (Zicclsm).

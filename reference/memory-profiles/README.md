@@ -16,7 +16,7 @@ memory-safety-guard-regions, elf-loading-and-validation). `ZkvmRef.MemoryProfile
 | `stack`         | read-write stack region; the page below it is the stack      |
 |                 | guard; `_start` sets `sp` to its top                         |
 
-Addresses are `0x`-prefixed hex strings.
+Addresses are `0x`-prefixed hex strings. The page at 0 is never mapped.
 
 `reference-x.json` and `reference-rx.json` differ only in `exec_perm`, because the standards allow
 both execute-only and read+execute code; the two profiles exercise both (for example, reading code

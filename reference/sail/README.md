@@ -15,7 +15,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 | Module                    | File                           | Contents                                                     |
 | ------------------------- | ------------------------------ | ------------------------------------------------------------ |
 | `zkvm_core`               | `zkvm_state.sail`              | memory profile (`zkvm_memory_profile`, register              |
-|                           |                                | `zkvm_profile`); `zkvm_outcome` (`ZKVM_Success`,             |
+|                           |                                | `zkvm_profile`, `zkvm_page_size`, `zkvm_null_page`,          |
+|                           |                                | `zkvm_stack_guard`); `zkvm_outcome` (`ZKVM_Success`,         |
 |                           |                                | `ZKVM_Failure(code)`, `ZKVM_Fault`,                          |
 |                           |                                | `ZKVM_Unspecified(symbol)`); registers `zkvm_halt`,          |
 |                           |                                | `zkvm_output_rev` (public output, newest byte first),        |
@@ -50,7 +51,8 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | with its PMA attributes, PC, reset, segment bytes, host      |
 |                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values   |
 |                           |                                | for the control registers sail-riscv reads before writing,   |
-|                           |                                | and the trap vector `zkvm_trap_vector`)                      |
+|                           |                                | and the trap vector `zkvm_trap_vector`, address 0 in the     |
+|                           |                                | never-mapped null page)                                      |
 | `zkvm_machine`            | `zkvm_step.sail`               | `zkvm_step`: asserts the run has not halted; then the host   |
 |                           |                                | function bound to the PC, or one instruction via             |
 |                           |                                | sail-riscv's `try_step`, counting a misaligned data access   |
@@ -63,8 +65,9 @@ host functions access memory with the same permission checks as guest loads and 
 ## How the zkVM behaviour is attached without patching sail-riscv
 
 - **Every trap is a fault.** sail-riscv's trap handler jumps to `mtvec`. `zkvm_reset` points `mtvec`
-  at `zkvm_trap_vector` (address 0), and `zkvm_step` halts with `ZKVM_Fault()` whenever PC is
-  `zkvm_trap_vector` after an instruction.
+  at address 0, which lies in the null page the loader never maps, and `zkvm_step` halts with
+  `ZKVM_Fault()` whenever PC is 0 after an instruction. A jump to 0 is also reported as a fault,
+  which is what fetching from the unmapped null page would produce.
 - **Misaligned-access count.** In RV64IM the only data accesses are `LOAD` and `STORE`. Before each
   instruction, `zkvm_step` decodes it with sail-riscv's `ext_decode` and counts it if its effective
   address `X(rs1) + imm` is misaligned for its width, the same address and test

@@ -63,3 +63,19 @@ For zkVMs that manage their own address space, implementing these protections re
 ### Relationship to the Memory Layout Standard
 
 The null pointer trap region and the stack guard region are compatible with the Memory Layout Restrictions standard, which permits vendors to define their own memory layouts. Vendors retain full flexibility over the rest of the address space. The only constraint imposed by this standard is that the first 4 kB and the region immediately below the stack bottom must not be accessible.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| GUA1 | The first 4 kB of the guest address space (addresses `0x0000` through `0x0FFF`) must be reserved as a trap region. | zkVM | Sail |
+| GUA2 | Any read or write access to the null pointer trap region must trigger abnormal termination. | zkVM | Sail, monitor |
+| GUA3 | The null pointer trap region must not be mapped to readable or writable memory. | zkVM | Sail, Lean, monitor-static |
+| GUA4 | The null pointer trap region must not be used by the zkVM runtime, linker scripts, or any other system component. | zkVM, vendor library | Sail, monitor-static |
+| GUA5 | A guard region of at least 4 kB must be placed immediately below the bottom of the stack. | zkVM, vendor library | Sail, monitor |
+| GUA6 | Any read or write access to the stack guard region must trigger abnormal termination. | zkVM | Sail, monitor |
+| GUA7 | The stack guard region must be contiguous and adjacent to the bottom of the stack with no gap between them. | zkVM, vendor library | Sail, monitor |
+| GUA8 | The stack guard region must not be mapped to readable or writable memory. | zkVM | Sail, Lean, monitor-static |
+| GUA9 | On an access to either guard region, execution halts, failure is reported to the host, and no valid proof of successful execution may be generated. | zkVM, verifier | Sail, monitor |

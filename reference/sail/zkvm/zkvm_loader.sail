@@ -291,6 +291,17 @@ function zkvm_page_at(ps, pg) =
     p :: rest => if p.first <= pg & pg <= p.last then Some(p) else zkvm_page_at(rest, pg),
   }
 
+// Some mapped page lies entirely inside the range r.
+val zkvm_maps_into : (list(zkvm_pages), zkvm_range) -> bool
+function zkvm_maps_into(ps, r) = {
+  let lo = ediv_int(unsigned(r.base) + zkvm_page - 1, zkvm_page);
+  let hi = ediv_int(unsigned(r.base) + unsigned(r.size), zkvm_page) - 1;
+  match ps {
+    [||] => false,
+    p :: rest => (p.first <= hi & lo <= p.last & lo <= hi) | zkvm_maps_into(rest, r),
+  }
+}
+
 // Insert a run into a list sorted by first page.
 val zkvm_insert_pages : (zkvm_pages, list(zkvm_pages)) -> list(zkvm_pages)
 function zkvm_insert_pages(p, ps) =
@@ -526,5 +537,9 @@ function zkvm_validate(p, b) = {
     Ok(ps') => ps = ps',
     Err(m) => return Err(m),
   };
+  // [GUA3][GUA4]
+  if zkvm_maps_into(ps, zkvm_null_page) then return Err("null page is mapped");
+  // [GUA8]
+  if zkvm_maps_into(ps, zkvm_stack_guard(p)) then return Err("stack guard page is mapped");
   Ok(struct { elf = elf, regions = zkvm_regions_of(zkvm_sort_pages(ps)) })
 }
