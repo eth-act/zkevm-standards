@@ -149,4 +149,41 @@ The loader performs the validation in [Header validation](#header-validation), [
 
 The RISC-V-specific `e_flags` field (RVC, float ABI, RVE, and similar bits; see the [RISC-V ELF psABI, ELF Object Files](https://riscv-non-isa.github.io/riscv-elf-psabi-doc/#_elf_object_files)) is intentionally left unchecked. Unlike class, endianness, machine, and type — which are fixed for every conforming zkVM — `e_flags` records an ISA/ABI variant, and the [RISC-V target](../riscv-target/target.md) is a minimum a zkVM may exceed: a zkVM that implements the C extension can legitimately run a binary with `EF_RISCV_RVC` set. The field is also only advisory; the actual ISA/ABI limits are enforced by the instruction decoder during execution and by the linker when building the artifact, so a fixed `e_flags` requirement would over-constrain capable zkVMs without adding a real guarantee.
 
+## Normative requirements
 
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| ELF1 | The loader derives the initial machine state from the ELF together with the zkVM's own fixed parameters, and from no other per-program input. | zkVM | Sail |
+| ELF2 | Before constructing any state, the loader validates the ELF header and rejects the file if any check fails. | zkVM | Sail, monitor |
+| ELF3 | Magic: `e_ident[0..4]` equals `\x7fELF`. | zkVM | Sail, monitor |
+| ELF4 | Class: `ELFCLASS64`, the bit-width of the RISC-V target. | zkVM | Sail, monitor |
+| ELF5 | Data encoding: `ELFDATA2LSB` (little-endian). | zkVM | Sail, monitor |
+| ELF6 | Machine: `e_machine == EM_RISCV`. | zkVM | Sail, monitor |
+| ELF7 | Type: `e_type == ET_EXEC` (statically linked executable). | zkVM | Sail, monitor |
+| ELF8 | The loader must not infer endianness from, or adapt endianness to, the file; any deviation is an invalid input. | zkVM | Sail, monitor |
+| ELF9 | The initial memory image is constructed exclusively from the ELF's program headers of type `PT_LOAD`. | zkVM | Sail, monitor |
+| ELF10 | The loader must not use section headers to determine what is loaded into memory; loading is unaffected by their presence, absence, or contents. | zkVM | Sail, monitor |
+| ELF11 | The loader places the `p_filesz` bytes at `[p_offset, p_offset + p_filesz)` in the file at virtual addresses `[p_vaddr, p_vaddr + p_filesz)`. | zkVM | Sail, Lean, monitor |
+| ELF12 | If `p_memsz > p_filesz`, the loader zero-fills the range `[p_vaddr + p_filesz, p_vaddr + p_memsz)`. | zkVM | Sail, Lean, monitor |
+| ELF13 | The loader verifies that `p_vaddr` and `p_vaddr + p_memsz` lie within the zkVM's addressable space and rejects the segment otherwise. | zkVM | Sail, monitor, monitor-static |
+| ELF14 | `p_vaddr` is aligned as required by the target; misaligned segments are rejected. | zkVM | Sail, monitor, monitor-static |
+| ELF15 | Loadable segments must not overlap in virtual address space; a loader rejects overlapping `PT_LOAD` segments. | zkVM | Sail, monitor, monitor-static |
+| ELF16 | The resulting image does not depend on the order in which program headers appear in the file. | zkVM | Sail |
+| ELF17 | W^X: a segment with both `PF_W` and `PF_X` set is rejected. | zkVM | Sail, Lean, monitor, monitor-static |
+| ELF18 | An executable segment is flagged either `PF_X` alone or `PF_X \| PF_R`. | zkVM | Sail, monitor |
+| ELF19 | A `PF_X`-only segment contains only instructions; its entire content must be decodable as a sequence of RISC-V instructions. | guest | Sail, monitor-static |
+| ELF20 | A load that targets an execute-only segment causes abnormal termination, even when the target address holds a valid instruction. | zkVM | Sail, monitor |
+| ELF21 | For a `PF_X \| PF_R` segment, a load must return the real byte stored at that address, the same byte that executes there. | zkVM | Sail, Lean, monitor |
+| ELF22 | A zkVM accepts either `PF_X` or `PF_X \| PF_R`, not both; the loader validates that every executable segment's flags match the combination its zkVM accepts, and rejects the ELF otherwise. | zkVM | Sail, Lean, monitor, monitor-static |
+| ELF23 | A zkVM executes only instructions that are present in an executable (`PF_X`) segment of the loaded ELF; data written to memory is not executed as code. | zkVM | Sail, monitor |
+| ELF24 | A zkVM that requires an execute-only (`PF_X`) segment should provide a linker script that separates code and read-only data. | vendor library | monitor-static |
+| ELF25 | `e_entry` is aligned to the instruction word (4 bytes). | zkVM | Sail, monitor, monitor-static |
+| ELF26 | `e_entry` lies within the zkVM's addressable space and falls within a loaded executable (`PF_X`) segment. | zkVM | Sail, monitor, monitor-static |
+| ELF27 | If the zkVM begins execution at a fixed boot address, `e_entry` equals that address. | zkVM | Sail, monitor |
+| ELF28 | When control reaches the entry point, every byte initialized from segment file data holds that data at its virtual address, every zero-initialized byte holds zero, and read-only data is present and readable at its virtual address. | zkVM | Sail, Lean, monitor |
+| ELF29 | The load address equals the virtual address (`VMA == LMA`); no relocation is performed at load time. | zkVM | Sail, monitor |
+| ELF30 | A loader that materializes zeros during image construction must not, in doing so, overwrite any byte that was initialized from `p_filesz` file data. | zkVM | Sail, monitor |
+| ELF31 | An invalid ELF is rejected with a diagnostic and no partial or speculative machine state is presented to the prover. | zkVM | Sail, monitor |
+| ELF32 | `e_flags` is not validated. | zkVM | Sail |

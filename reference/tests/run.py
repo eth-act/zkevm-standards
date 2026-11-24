@@ -21,6 +21,7 @@ import json
 import pathlib
 import re
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -39,6 +40,7 @@ CFLAGS = [
     "-I", str(ROOT / "standards" / "c-interface-accelerators"),
 ]
 GUESTS = REF / "tests" / "guests"
+ECHO_INPUT = (GUESTS / "echo.input").read_bytes()
 
 results = []
 
@@ -74,12 +76,13 @@ def link(src, ld, objs, elf):
 def stub_library(path):
     """One 4-byte label per static-library symbol, as listed by `zkvm-run --list-symbols` (Sail's
     `zkvm_library`). Never executed: the machine performs the host function when the PC reaches
-    the symbol."""
+    the symbol. Each label holds `ebreak`, an RV64I instruction, so execute-only segments stay
+    decodable (`unimp` is a Zicsr instruction)."""
     symbols = subprocess.run([str(ZKVM_RUN), "--list-symbols"], capture_output=True, text=True,
                              check=True).stdout.split()
     lines = ["  .section .text", "  .balign 4"]
     for s in symbols:
-        lines += ["", f"  .globl {s}", f"{s}:", "  unimp"]
+        lines += ["", f"  .globl {s}", f"{s}:", "  ebreak"]
     path.write_text("\n".join(lines) + "\n")
 
 
@@ -160,12 +163,100 @@ def case(guest, profile):
            "; ".join(problems) + f" (expected {outcome} {output!r})")
 
 
+def phdr_offsets(data):
+    phoff = struct.unpack_from("<Q", data, 32)[0]
+    phnum = struct.unpack_from("<H", data, 56)[0]
+    offs = [phoff + i * 56 for i in range(phnum)]
+    return [o for o in offs if struct.unpack_from("<I", data, o)[0] == 1]
+
+
+def patched(edit):
+    data = bytearray((BUILD / "reference-x" / "echo.elf").read_bytes())
+    edit(data, phdr_offsets(data))
+    return bytes(data)
+
+
+def put(fmt, off, value):
+    return lambda d, _: struct.pack_into(fmt, d, off, value)
+
+
+def phdr_field(index, field_off, fmt, fn):
+    def edit(d, loads):
+        o = loads[index] + field_off
+        struct.pack_into(fmt, d, o, fn(struct.unpack_from(fmt, d, o)[0]))
+    return edit
+
+
+def both(*edits):
+    def edit(d, loads):
+        for e in edits:
+            e(d, loads)
+    return edit
+
+
+def rejection(name, elf_bytes, message, profile="reference-x"):
+    workdir = BUILD / "reject" / name
+    shutil.rmtree(workdir, ignore_errors=True)
+    workdir.mkdir(parents=True)
+    elf = workdir / "guest.elf"
+    elf.write_bytes(elf_bytes)
+    (workdir / "input.bin").write_bytes(ECHO_INPUT)
+    want = f"REJECT {message}"
+    r = subprocess.run([str(ZKVM_RUN), str(profile_path(profile)), str(elf), str(workdir / "input.bin")],
+                       capture_output=True, text=True)
+    ok = r.returncode == 2 and r.stdout.strip() == want
+    report(f"reject {name} -> {want}", ok, f"exit {r.returncode} printed {r.stdout.strip()!r}{r.stderr.strip()!r}")
+
+
+def accepted(name, elf_bytes, outcome, output, profile="reference-x"):
+    """A patched ELF the loader must accept, with its expected observation."""
+    workdir = BUILD / "accept" / name
+    shutil.rmtree(workdir, ignore_errors=True)
+    workdir.mkdir(parents=True)
+    elf = workdir / "guest.elf"
+    elf.write_bytes(elf_bytes)
+    (workdir / "input.bin").write_bytes(ECHO_INPUT)
+    got_outcome, got_output, _ = run_lean(profile, elf, workdir)
+    report(f"accept {name} -> {outcome} {output!r}", (got_outcome, got_output) == (outcome, output),
+           f"got {got_outcome} {got_output!r}")
+
+
+def exec_decodes(profile, elf):
+    """`zkvm-run --check-exec-decodes` accepts an ELF whose execute-only segment holds only
+    instructions."""
+    r = subprocess.run([str(ZKVM_RUN), "--check-exec-decodes", str(profile_path(profile)), str(elf)],
+                       capture_output=True, text=True)
+    report(f"check-exec-decodes {profile}/{elf.name} -> OK", r.returncode == 0 and r.stdout.strip() == "OK",
+           f"exit {r.returncode} printed {r.stdout.strip()!r}{r.stderr.strip()!r}")
+
+
 def main():
     build()
 
     for src in sorted(GUESTS.glob("*.c")):
         for profile in guest_profiles(src.stem):
             case(src.stem, profile)
+
+    rejection("bad-magic", patched(put("<B", 0, 0)), "bad magic")
+    rejection("class32", patched(put("<B", 4, 1)), "class is not ELFCLASS64")
+    rejection("machine", patched(put("<H", 18, 0x3e)), "e_machine is not EM_RISCV")
+    rejection("etype", patched(put("<H", 16, 3)), "e_type is not ET_EXEC")
+    rejection("entry", patched(lambda d, _: struct.pack_into(
+        "<Q", d, 24, struct.unpack_from("<Q", d, 24)[0] + 2)), "e_entry not 4-byte aligned")
+    # The image is placed at p_vaddr; the ELF standard has no p_paddr check.
+    accepted("paddr", patched(phdr_field(0, 24, "<Q", lambda v: v + 0x1000)),
+             "success", b"len=10;mvkz olleh")
+    rejection("wx", patched(phdr_field(0, 4, "<I", lambda v: 7)),
+              "segment 0x80000000: W^X violated")
+    rejection("rx-under-x", (BUILD / "reference-rx" / "echo.elf").read_bytes(),
+              "segment 0x80000000: executable flags do not match profile")
+    rejection("overlap", patched(both(phdr_field(2, 16, "<Q", lambda v: 0x80000000),
+                                      phdr_field(2, 24, "<Q", lambda v: 0x80000000))),
+              "segments 0x80000000 and 0x80000000 overlap")
+    rejection("outside", patched(both(phdr_field(0, 16, "<Q", lambda v: 0x200000000),
+                                      phdr_field(0, 24, "<Q", lambda v: 0x200000000))),
+              "segment 0x200000000: outside the addressable space")
+    exec_decodes("reference-x", BUILD / "reference-x" / "echo.elf")
 
     passed = sum(results)
     failed = len(results) - passed
