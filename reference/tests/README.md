@@ -56,6 +56,8 @@ Summary of the current guests:
 | `misaligned_load`                   | x       | success, output `0405060708090a0b`, 2 misaligned accesses    |
 | `text_read`                         | x       | fault (execute-only code is unreadable)                      |
 | `text_read`                         | rx      | success, output `13000000` (a `nop` read as data)            |
+| `null_load`, `null_store_fff`       | x       | fault (null page)                                            |
+| `stack_overflow`                    | x       | fault (stack guard)                                          |
 
 Rejections (`zkvm-run` prints `REJECT <message>`, exit 2): `echo.elf` patched for bad magic,
 ELFCLASS32, wrong machine, wrong type, misaligned entry, W^X, overlapping segments, a segment

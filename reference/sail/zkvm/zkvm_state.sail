@@ -36,6 +36,18 @@ register zkvm_profile : zkvm_memory_profile = struct {
   stack = struct { base = zeros(), size = zeros() },
 }
 
+// Granularity of memory permissions.
+let zkvm_page_size : xlenbits = zero_extend(0x1000)
+
+// [GUA1]
+// The null-pointer trap region: never mapped, so any access to it faults.
+let zkvm_null_page : zkvm_range = struct { base = zeros(), size = zkvm_page_size }
+
+// [GUA5][GUA7] one page, directly below the stack, no gap
+// The stack guard region directly below the stack: never mapped.
+function zkvm_stack_guard(p : zkvm_memory_profile) -> zkvm_range =
+  struct { base = p.stack.base - zkvm_page_size, size = zkvm_page_size }
+
 // ---------------------------------------------------------------------------------------------
 // Run state.
 

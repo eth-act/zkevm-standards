@@ -25,6 +25,13 @@ def SegmentsLoaded (bytes : ByteArray) (img : Image) (s : MState) : Prop :=
 /-- Execution starts at `e_entry`. -/
 def PcAtEntry (img : Image) (s : MState) : Prop := pc s = BitVec.ofInt 64 img.elf.entry
 
+/-- No memory region contains a byte of the null page or of the stack guard page. [GUA3][GUA8] -/
+def GuardsUnmapped (p : MemoryProfile) (s : MState) : Prop :=
+  ∀ r ∈ pmaRegions s, ∀ x,
+    (InRange zkvm_null_page.base.toNat zkvm_null_page.size.toNat x ∨
+      InRange (zkvm_stack_guard p).base.toNat (zkvm_stack_guard p).size.toNat x) →
+      ¬ InRange r.base.toNat r.size.toNat x
+
 /-- No memory region is both writable and executable. [ELF17] -/
 def WXRespected (s : MState) : Prop :=
   ∀ r ∈ pmaRegions s, ¬ (r.attributes.writable = true ∧ r.attributes.executable = true)
@@ -37,6 +44,7 @@ def ExecMatchesProfile (p : MemoryProfile) (s : MState) : Prop :=
 /-- Whenever the loader accepts an ELF, the resulting machine satisfies all of the above. -/
 def LoaderCorrect (p : MemoryProfile) : Prop :=
   ∀ bytes m s img, validate p bytes = .ok img → load p bytes m = .ok s →
-    SegmentsLoaded bytes img s ∧ PcAtEntry img s ∧ WXRespected s ∧ ExecMatchesProfile p s
+    SegmentsLoaded bytes img s ∧ PcAtEntry img s ∧ GuardsUnmapped p s ∧ WXRespected s ∧
+      ExecMatchesProfile p s
 
 end ZkvmRef
