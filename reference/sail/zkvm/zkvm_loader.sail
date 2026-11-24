@@ -487,6 +487,23 @@ function zkvm_paint_segments(ps, phs) =
     },
   }
 
+// [LIB2][LIB3][LIB9]
+// Symbols the loader requires: the library entry point and I/O functions, and the guest's main.
+let zkvm_required_symbols : list(string) =
+  [| zkvm_library_symbol(zkvm_library, ZKVM_START), "main",
+     zkvm_library_symbol(zkvm_library, ZKVM_READ_INPUT),
+     zkvm_library_symbol(zkvm_library, ZKVM_WRITE_OUTPUT) |]
+
+val zkvm_first_missing : (list(zkvm_symbol), list(string)) -> option(string)
+function zkvm_first_missing(syms, names) =
+  match names {
+    [||] => None(),
+    n :: rest => match zkvm_symbol_value(syms, n) {
+      None() => Some(n),
+      Some(_) => zkvm_first_missing(syms, rest),
+    },
+  }
+
 // Validate an ELF against the memory profile and compute its memory map. The checks run in a
 // fixed order; the first failure is reported.
 val zkvm_validate : forall 'len, 'len >= 0.
@@ -541,5 +558,10 @@ function zkvm_validate(p, b) = {
   if zkvm_maps_into(ps, zkvm_null_page) then return Err("null page is mapped");
   // [GUA8]
   if zkvm_maps_into(ps, zkvm_stack_guard(p)) then return Err("stack guard page is mapped");
+  // Symbols the loader binds.
+  match zkvm_first_missing(elf.symbols, zkvm_required_symbols) {
+    Some(n) => return Err("missing symbol " ^ n),
+    None() => (),
+  };
   Ok(struct { elf = elf, regions = zkvm_regions_of(zkvm_sort_pages(ps)) })
 }

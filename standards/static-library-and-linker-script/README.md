@@ -91,3 +91,26 @@ The `int main(void)` notation denotes a linkable symbol, not a requirement to wr
 ### C++ support
 
 C++ static constructors and destructors are supported. `_start` invokes all static constructors before calling `main` and all static destructors after `main` returns. No additional vendor or application work is required to use C++ in guest programs.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| LIB1 | Each zkVM vendor must provide a static library (`.a` archive) targeting their zkVM. | vendor library | monitor-static |
+| LIB2 | The library must include the `_start` function, the machine entry point. | vendor library | Sail, Lean, monitor |
+| LIB3 | The library must include all functions defined in the IO Interface Standard: `read_input` and `write_output`. | vendor library | Sail, Lean, monitor |
+| LIB4 | The library must include all functions defined in the Cryptographic Accelerators C Interface Standard. | vendor library | Sail, Lean, monitor |
+| LIB5 | The linker script must set the ELF entry point to `_start`. | vendor library | Lean, monitor-static |
+| LIB6 | `_start` is the first code executed by the zkVM. | zkVM, vendor library | Sail |
+| LIB7 | `_start` must perform all machine initialization required before C/C++ code can execute, including any IO interface initialization so that `read_input` and `write_output` are usable when `main` is entered. | vendor library | Sail, monitor |
+| LIB8 | After initialization, `_start` must call `main` and pass its return value to the zkVM termination mechanism; `_start` does not return to a caller. | vendor library | Sail, monitor |
+| LIB9 | The application must provide a symbol named `main` that `_start` can call using the standard C calling convention, with the ABI `int main(void)`. | guest | Sail |
+| LIB10 | The `argc`/`argv` form of `main` is not required and must not be assumed by the runtime. | vendor library | Sail |
+| LIB11 | The BSS segment contains only zero bytes when `main` is entered. | zkVM | Sail, monitor |
+| LIB12 | The vendor must supply a linker script alongside the static library. | vendor library | monitor-static |
+| LIB13 | The linker script must be compatible with both GNU ld and LLD (LLVM). | vendor library | monitor |
+| LIB14 | The linker script places code and read-only data in separate loadable segments using `PHDRS`: code sections in an executable, non-writable segment and every read-only data section in a separate readable, non-executable segment. | vendor library | monitor-static |
+| LIB15 | The linker script defines `_heap_start` (the first byte of the heap region) and `_heap_end` (one past the last byte of the heap region). | vendor library | Lean, monitor-static |
+| LIB16 | `_start` invokes all static constructors before calling `main` and all static destructors after `main` returns. | vendor library | monitor, not tested in Sail: not modelled (#59) |

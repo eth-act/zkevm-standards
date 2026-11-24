@@ -44,9 +44,9 @@ initialisation. Lean (`../lean`) decodes input files, runs the step, and holds t
 |                           |                                | program headers, the symbol table), `zkvm_validate` (the     |
 |                           |                                | checks of the ELF standard and the memory-profile checks,    |
 |                           |                                | first failure reported as a message), the memory map as page |
-|                           |                                | runs (`zkvm_paint`, `zkvm_regions_of`);                      |
-|                           |                                | `zkvm_exec_undecodable` (the first word of an execute-only   |
-|                           |                                | segment that does not decode as RV64IM)                      |
+|                           |                                | runs (`zkvm_paint`, `zkvm_regions_of`), the required         |
+|                           |                                | symbols; `zkvm_exec_undecodable` (the first word of an       |
+|                           |                                | execute-only segment that does not decode as RV64IM)         |
 | `zkvm_machine`            | `zkvm_install.sail`            | machine initialisation: `zkvm_install` (profile, memory map  |
 |                           |                                | with its PMA attributes, PC, reset, segment bytes, host      |
 |                           |                                | bindings), `zkvm_provide_input`, `zkvm_reset` (zkVM values   |

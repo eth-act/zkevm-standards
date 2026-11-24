@@ -223,6 +223,19 @@ def accepted(name, elf_bytes, outcome, output, profile="reference-x"):
            f"got {got_outcome} {got_output!r}")
 
 
+def missing_symbol_elf():
+    """exit3.c linked against a library that defines only `_start`."""
+    workdir = BUILD / "reject" / "missing-symbol-build"
+    workdir.mkdir(parents=True, exist_ok=True)
+    stub = workdir / "start_only.S"
+    stub.write_text("  .section .text\n  .balign 4\n  .globl _start\n_start:\n  unimp\n")
+    obj = workdir / "start_only.o"
+    subprocess.run([CC, *CFLAGS, "-c", str(stub), "-o", str(obj)], check=True)
+    elf = workdir / "exit3.elf"
+    link(REF / "tests" / "guests" / "exit3.c", BUILD / "reference-x" / "link.ld", [obj], elf)
+    return elf.read_bytes()
+
+
 def exec_decodes(profile, elf):
     """`zkvm-run --check-exec-decodes` accepts an ELF whose execute-only segment holds only
     instructions."""
@@ -261,6 +274,7 @@ def main():
     rejection("segment-in-input", patched(both(phdr_field(2, 16, "<Q", lambda v: 0x40000000),
                                                phdr_field(2, 24, "<Q", lambda v: 0x40000000))),
               "segment page 0x40000000 outside memory")
+    rejection("missing-symbol", missing_symbol_elf(), "missing symbol read_input")
     exec_decodes("reference-x", BUILD / "reference-x" / "echo.elf")
 
     passed = sum(results)

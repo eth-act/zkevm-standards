@@ -27,9 +27,10 @@ struct zkvm_library_fn = {
 // The zkVM static library: every function, once, with its C prototype. Everything else about the
 // library (bindings, required and optional exports, the test stub library) is derived from it.
 let zkvm_library : list(zkvm_library_fn) = [|
+  // [LIB2]
   // entry point; calls main and passes its return value to the termination mechanism
   struct { symbol = "_start", kind = ZKVM_START, required = true },
-  // [IO1] the I/O interface (standards/io-interface)
+  // [IO1][LIB3] the I/O interface (standards/io-interface)
   // void read_input(const uint8_t** buf_ptr, size_t* buf_size);
   struct { symbol = "read_input", kind = ZKVM_READ_INPUT, required = true },
   // void write_output(const uint8_t* output, size_t size);
@@ -43,7 +44,7 @@ let zkvm_library : list(zkvm_library_fn) = [|
   struct { symbol = "memset", kind = ZKVM_MEMSET, required = false },
   // int   memcmp(const void *lhs, const void *rhs, size_t n)
   struct { symbol = "memcmp", kind = ZKVM_MEMCMP, required = false },
-  // [ACC1] every function of zkvm_accelerators.h (standards/c-interface-accelerators)
+  // [ACC1][LIB4] every function of zkvm_accelerators.h (standards/c-interface-accelerators)
   // zkvm_status zkvm_keccak256(const uint8_t* data, size_t len, zkvm_keccak256_hash* output);
   struct { symbol = "zkvm_keccak256", kind = ZKVM_ACCELERATOR, required = true },
   // zkvm_status zkvm_secp256k1_verify(const zkvm_secp256k1_hash* msg, const zkvm_secp256k1_signature* sig, const zkvm_secp256k1_pubkey* pubkey, bool* verified);
@@ -173,7 +174,8 @@ function zkvm_readable(a : xlenbits, n : int) -> bool = {
   true
 }
 
-// [TER12]
+// [TER12][LIB6][LIB7][LIB8][LIB10] PC starts at e_entry = _start; main is called with no
+// arguments; reaching _start again halts the run, it never returns to a caller
 // _start: the first time, set sp to the top of the stack region, gp to __global_pointer$ (if
 // defined) and ra to _start itself, and call main. Reaching _start again is main returning: the
 // run halts with exit code (uint32_t)a0.

@@ -20,16 +20,16 @@ decodes input files, runs the step, and holds the statements and the executable.
 | `ZkvmRef/Run.lean`           | `step` (Sail's `zkvm_step`), `runFinal`, `run`, `Outcome`    |
 |                              | (including `leanOutOfFuel`, which is not a standard          |
 |                              | outcome), `Observation`, `Terminal`                          |
-| `ZkvmRef/StaticLibrary.lean` | vocabulary for library statements: `stepN`, `CallReturns`,   |
-|                              | psABI callee-saved registers, `Readable`/`Writable`,         |
-|                              | `AtEntry`, `native`                                          |
+| `ZkvmRef/StaticLibrary.lean` | vocabulary for library statements: `Exports`, required and   |
+|                              | optional exports, `stepN`, `CallReturns`, psABI callee-saved |
+|                              | registers, `Readable`/`Writable`, `AtEntry`, `native`        |
 | `ZkvmRef/LoaderSpec.lean`    | statements about the reference loader: `SegmentsLoaded`,     |
 |                              | `PcAtEntry`, `GuardsUnmapped`, `WXRespected`,                |
 |                              | `ExecMatchesProfile`, `LoaderCorrect`                        |
 | `ZkvmRef/Compliance.lean`    | compliance statements: for zkVMs `Halts`, `Rejects`, `ZkVM`, |
 |                              | `LoaderConforms`, `ExecutionConforms`, `Type1Sound`,         |
 |                              | `Type2Sound`, `Type1Complete`, `Compliant`; for vendor       |
-|                              | static libraries `ImplementsHost`                            |
+|                              | static libraries `StaticLibraryConforms`, `ImplementsHost`   |
 | `Main/Run.lean`              | executable `zkvm-run` (arguments: optional `--canary`,       |
 |                              | PROFILE, ELF, INPUT, optional FUEL): validates, boots and    |
 |                              | runs one guest, then prints one line `outcome=<…>`           |
