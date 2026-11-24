@@ -50,3 +50,4 @@ Summary of the current guests:
 | `ebreak`, `illegal`, `ecall`, `csr` | x       | fault (trap)                                                 |
 | `input_write`                       | x       | fault (input region is read-only)                            |
 | `misaligned_jump`                   | x       | fault (misaligned jump target)                               |
+| `misaligned_load`                   | x       | success, output `0405060708090a0b`, 2 misaligned accesses    |

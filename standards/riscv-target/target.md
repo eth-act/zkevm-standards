@@ -54,3 +54,18 @@ zkVMs must provide visibility into the number of unaligned memory accesses that 
 ## zkVM precompiles
 
 Since zkVM precompiles are defined via a C interface, the implementation details of how a zkVM precompile is called does not need to be specified.
+
+## Normative requirements
+
+Each requirement has an ID. "Checked by" names where it is enforced or tested: `Sail` (the reference in `reference/sail/`), `Lean` (a statement in `reference/lean/ZkvmRef/`), `monitor` (a guest test in eth-act/zkevm-test-monitor), `monitor-static` (a static check there), or `not tested` with the reason.
+
+| ID | Requirement | Applies to | Checked by |
+| --- | --- | --- | --- |
+| TGT1 | The target is `riscv64im_zicclsm-unknown-none-elf`: ISA base `RV64I` with the extensions `M` and `Zicclsm`. | zkVM | Sail, monitor |
+| TGT2 | Compressed (`C`) and floating point (`F`, `D`) are excluded (soft-float); a zkVM may support more. | guest | Sail (`--check-exec-decodes` reports non-RV64IM words) |
+| TGT3 | Machine (`M`) mode only; no syscalls or environment. | zkVM, guest | Sail, monitor |
+| TGT4 | ABI `LP64` (soft-float), ELF statically linked, little-endian, flat memory model with no MMU and no paging. | zkVM, guest | Sail |
+| TGT5 | The `Zicclsm` extension is required. | zkVM | Sail, monitor |
+| TGT6 | Misaligned loads and stores to main memory regions must be supported. | zkVM | Sail, monitor |
+| TGT7 | zkVMs must provide visibility into the number of unaligned memory accesses that occur during proof generation. | zkVM | Sail, not tested for vendors: no standard output format |
+| TGT8 | At minimum, zkVMs should expose a count of unaligned accesses per proof through command-line output or log files. | zkVM | Sail, not tested for vendors: no standard output format |

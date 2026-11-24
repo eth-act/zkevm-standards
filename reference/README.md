@@ -18,7 +18,7 @@ and exercise it.
 | Sail     | Machine initialisation: memory attributes, reset values,     | `sail/zkvm/zkvm_install.sail`                    |
 |          | segment bytes, host bindings, input                          |                                                  |
 | Sail     | One zkVM step: host function or instruction; every trap is a | `sail/zkvm/zkvm_step.sail`                       |
-|          | fault                                                        |                                                  |
+|          | fault; misaligned data accesses are counted                  |                                                  |
 | Lean     | Decoding memory-profile files; passing file bytes to the     | `lean/ZkvmRef/MemoryProfile.lean`, `Loader.lean` |
 |          | Sail loader                                                  |                                                  |
 | Lean     | Run loop and observations                                    | `lean/ZkvmRef/Run.lean`                          |
